@@ -20,6 +20,7 @@ void main() {
   Future<void> pumpEditor(
     WidgetTester tester, {
     CourseWithSessions? initialCourse,
+    List<PeriodDefinition> periodDefinitions = const [],
     required Future<void> Function(CourseWithSessions course) onSave,
     Future<void> Function()? onDelete,
   }) async {
@@ -32,6 +33,7 @@ void main() {
       MaterialApp(
         home: CourseEditorPage(
           semester: semester,
+          periodDefinitions: periodDefinitions,
           initialCourse: initialCourse,
           onSave: onSave,
           onDelete: onDelete,
@@ -119,6 +121,47 @@ void main() {
     expect(saved!.course.isLocallyModified, isTrue);
     expect(saved!.sessions.single.id, initial.sessions.single.id);
     expect(saved!.sessions.single.courseId, initial.course.id);
+  });
+
+  testWidgets('学校作息存在时只能选择有效节次', (tester) async {
+    CourseWithSessions? saved;
+    final periods = [
+      for (var period = 1; period <= 10; period++)
+        PeriodDefinition(
+          id: 'period-$period',
+          semesterId: semester.id,
+          period: period,
+          startTime: '${(7 + period).toString().padLeft(2, '0')}:00',
+          endTime: '${(7 + period).toString().padLeft(2, '0')}:45',
+          group: period <= 4
+              ? PeriodGroup.morning
+              : period <= 8
+              ? PeriodGroup.afternoon
+              : PeriodGroup.evening,
+        ),
+    ];
+    await pumpEditor(
+      tester,
+      periodDefinitions: periods,
+      onSave: (course) async => saved = course,
+    );
+
+    await tester.enterText(find.byKey(const Key('course-name-field')), '数据库');
+    await tester.tap(find.byKey(const Key('session-0-start-period')));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('第10节'), findsOneWidget);
+    expect(find.textContaining('第11节'), findsNothing);
+
+    await tester.tap(find.textContaining('第5节'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('course-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!.sessions.single.startPeriod, 5);
+    expect(saved!.sessions.single.endPeriod, 5);
   });
 
   testWidgets('编辑态删除需要确认', (tester) async {

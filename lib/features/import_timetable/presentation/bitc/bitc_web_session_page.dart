@@ -127,7 +127,8 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
       );
       final decoded = jsonDecode(payload);
       if (decoded is! Map<String, Object?> ||
-          decoded['kbList'] is! List<Object?>) {
+          decoded['kbList'] is! List<Object?> ||
+          decoded['timingProfiles'] is! List<Object?>) {
         throw const FormatException('Response is not a timetable payload.');
       }
       if (!mounted) return;
@@ -213,64 +214,118 @@ String buildBitcTimetableBridgeScript({
       if (location.hostname !== 'jwxt.vpn.bitc.edu.cn') {
         throw new Error('Not on the timetable host');
       }
-      const body = new URLSearchParams({
-        xnm: $year,
-        xqm: $term,
-        kzlx: 'ck',
-        xsdm: ''
+      const common = {xnm: $year, xqm: $term};
+      async function postJson(path, values) {
+        const response = await fetch(path, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+          },
+          body: new URLSearchParams(values).toString()
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      }
+      const rawPayload = await postJson('/kbcx/xskbcx_cxXsgrkb.html', {
+        ...common, kzlx: 'ck', xsdm: ''
       });
-      const response = await fetch('/kbcx/xskbcx_cxXsgrkb.html', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-        },
-        body: body.toString()
-      });
-      if (!response.ok) throw new Error('HTTP ' + response.status);
-      const rawPayload = await response.json();
       const courseKeys = [
         'jxb_id', 'kch', 'kcmc', 'xm', 'xqj', 'jcs', 'jcor', 'zcd',
         'xqmc', 'cdmc'
       ];
       const calendarKeys = ['rq', 'xqj', 'zc'];
-      const courses = Array.isArray(rawPayload.kbList)
-        ? rawPayload.kbList.map(function (item) {
-            const course = {};
-            courseKeys.forEach(function (key) {
-              if (Object.prototype.hasOwnProperty.call(item, key)) {
-                course[key] = item[key];
-              }
-            });
-            return course;
-          })
-        : [];
+      const campusRows = Array.isArray(rawPayload.kbList) ? rawPayload.kbList : [];
+      const campusBySourceId = new Map();
+      campusRows.forEach(function (item) {
+        const sourceId = item && item.xqh_id != null
+          ? String(item.xqh_id).trim() : '';
+        if (!sourceId || campusBySourceId.has(sourceId)) return;
+        campusBySourceId.set(sourceId, {
+          sourceId: sourceId,
+          name: item.xqmc == null || String(item.xqmc).trim() === ''
+            ? '校区 ' + (campusBySourceId.size + 1)
+            : String(item.xqmc).trim()
+        });
+      });
+      if (campusBySourceId.size === 0) {
+        campusBySourceId.set('', {sourceId: '', name: '默认校区'});
+      }
+      const campuses = Array.from(campusBySourceId.values()).map(
+        function (campus, index) {
+          return {...campus, id: 'profile-' + index};
+        }
+      );
+      const profileIdBySourceId = new Map(
+        campuses.map(function (campus) { return [campus.sourceId, campus.id]; })
+      );
+      const courses = campusRows.map(function (item) {
+        const course = {};
+        courseKeys.forEach(function (key) {
+          if (Object.prototype.hasOwnProperty.call(item, key)) course[key] = item[key];
+        });
+        const sourceId = item && item.xqh_id != null
+          ? String(item.xqh_id).trim() : '';
+        course.timingProfileId = profileIdBySourceId.get(sourceId) || 'profile-0';
+        return course;
+      });
+      const timingProfiles = await Promise.all(campuses.map(async function (campus) {
+        const profile = {id: campus.id, name: campus.name};
+        try {
+          const values = {...common, xqh_id: campus.sourceId};
+          const groupsRaw = await postJson(
+            '/kbcx/xskbcx_cxRsd.html?gnmkdm=N2151', values
+          );
+          const periodsRaw = await postJson(
+            '/kbcx/xskbcx_cxRjc.html?gnmkdm=N2151', values
+          );
+          const groupRows = Array.isArray(groupsRaw)
+            ? groupsRaw : (Array.isArray(groupsRaw.items) ? groupsRaw.items : []);
+          const periodRows = Array.isArray(periodsRaw)
+            ? periodsRaw : (Array.isArray(periodsRaw.items) ? periodsRaw.items : []);
+          profile.groups = groupRows.map(function (item) {
+            const group = {code: item.rsdm, name: item.rsdmc, count: item.rsdzjs};
+            if (item.rsdywmc != null) group.englishName = item.rsdywmc;
+            return group;
+          });
+          profile.periods = periodRows.map(function (item) {
+            const period = {
+              number: item.jcmc,
+              startTime: item.qssj,
+              endTime: item.jssj,
+              groupCode: item.rsdm
+            };
+            if (item.rsdmc != null) period.groupName = item.rsdmc;
+            if (item.rsdjcmc != null) period.displayName = item.rsdjcmc;
+            return period;
+          });
+        } catch (_) {
+          profile.warning = '学校作息接口请求失败';
+        }
+        return profile;
+      }));
       const calendarAnchors = Array.isArray(rawPayload.rqazcList)
         ? rawPayload.rqazcList.map(function (item) {
             const anchor = {};
             calendarKeys.forEach(function (key) {
-              if (Object.prototype.hasOwnProperty.call(item, key)) {
-                anchor[key] = item[key];
-              }
+              if (Object.prototype.hasOwnProperty.call(item, key)) anchor[key] = item[key];
             });
             return anchor;
-          })
-        : [];
+          }) : [];
       const minimized = {
         kbList: courses,
         sjkList: Array.isArray(rawPayload.sjkList)
-          ? rawPayload.sjkList.map(function () { return {}; })
-          : [],
-        rqazcList: calendarAnchors
+          ? rawPayload.sjkList.map(function () { return {}; }) : [],
+        rqazcList: calendarAnchors,
+        timingProfiles: timingProfiles
       };
       const zsType = typeof rawPayload.zs;
       if (rawPayload.zs === null ||
           ['string', 'number', 'boolean'].includes(zsType)) {
         minimized.zs = rawPayload.zs;
       }
-      const minimizedPayload = JSON.stringify(minimized);
       SchedulrBridge.postMessage(JSON.stringify({
-        payload: minimizedPayload
+        payload: JSON.stringify(minimized)
       }));
     })().catch(function (error) {
       SchedulrBridge.postMessage(JSON.stringify({

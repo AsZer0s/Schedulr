@@ -25,6 +25,7 @@ final class ZfCourseDto {
     this.teacher,
     this.location,
     this.notes,
+    this.timingProfileId,
   }) : weeks = Set.unmodifiable(weeks);
 
   final String sourceId;
@@ -32,6 +33,7 @@ final class ZfCourseDto {
   final String? teacher;
   final String? location;
   final String? notes;
+  final String? timingProfileId;
   final int weekday;
   final int startPeriod;
   final int endPeriod;

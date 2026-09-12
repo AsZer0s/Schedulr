@@ -24,15 +24,10 @@ class ImportRoutePage extends ConsumerWidget {
         }
         return TimetableImportPage(
           existingEntries: _existingEntries(value),
-          onCommit: (request, term, calendar) async {
+          onCommit: (request) async {
             await TimetableImportCoordinator(
               ref.read(timetableRepositoryProvider),
-            ).commit(
-              currentTimetable: value,
-              request: request,
-              importedTerm: term,
-              calendar: calendar,
-            );
+            ).commit(currentTimetable: value, request: request);
           },
         );
       },

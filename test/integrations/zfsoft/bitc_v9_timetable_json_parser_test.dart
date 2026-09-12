@@ -140,6 +140,80 @@ void main() {
     );
   });
 
+  test('解析 10 节 4/4/2 profile、规范化时间并关联课程', () {
+    final result = parser.parseResult(
+      _timingResponse(periodCount: 10, groupCounts: const [4, 4, 2]),
+    );
+
+    expect(result.timingIssues, isEmpty);
+    expect(result.timingProfiles, hasLength(1));
+    final schedule = result.timingProfiles.single.schedule!;
+    expect(schedule.periods, hasLength(10));
+    expect(schedule.periods.first.startTime, '08:00');
+    expect(schedule.countFor(ImportedPeriodGroup.morning), 4);
+    expect(schedule.countFor(ImportedPeriodGroup.afternoon), 4);
+    expect(schedule.countFor(ImportedPeriodGroup.evening), 2);
+    expect(result.courses.single.timingProfileId, 'profile-0');
+  });
+
+  test('支持 8/12 节与数字或字符串节次', () {
+    for (final count in [8, 12]) {
+      final result = parser.parseResult(
+        _timingResponse(
+          periodCount: count,
+          groupCounts: count == 8 ? const [4, 4, 0] : const [4, 4, 4],
+          numberAsString: count == 12,
+        ),
+      );
+      expect(result.timingProfiles.single.schedule!.periods, hasLength(count));
+    }
+  });
+
+  test('重复、倒置、count、group 和课程覆盖问题使 profile invalid', () {
+    for (final mutation in [
+      'duplicate',
+      'inverted',
+      'overlap',
+      'count',
+      'group',
+      'groupOrder',
+      'coverage',
+    ]) {
+      final result = parser.parseResult(
+        _timingResponse(
+          periodCount: 10,
+          groupCounts: const [4, 4, 2],
+          mutation: mutation,
+        ),
+      );
+      expect(result.timingProfiles.single.schedule, isNull, reason: mutation);
+      expect(result.timingIssues, isNotEmpty, reason: mutation);
+    }
+  });
+
+  test('多个 profile 保持顺序且可包含失败 profile', () {
+    final payload = jsonDecode(
+      _timingResponse(periodCount: 10, groupCounts: const [4, 4, 2]).body,
+    ) as Map<String, Object?>;
+    final first = (payload['timingProfiles'] as List).single;
+    payload['timingProfiles'] = [
+      first,
+      {'id': 'profile-1', 'name': '月湾校区（虚构）', 'warning': '学校作息接口请求失败'},
+    ];
+    final result = parser.parseResult(
+      ZfTimetableResponseDto(
+        body: jsonEncode(payload),
+        contentType: 'application/json',
+      ),
+    );
+    expect(result.timingProfiles.map((profile) => profile.id), [
+      'profile-0',
+      'profile-1',
+    ]);
+    expect(result.timingProfiles.last.schedule, isNull);
+    expect(result.timingIssues, isNotEmpty);
+  });
+
   test('识别 Web 会话失效的 HTML 登录页', () {
     const response = ZfTimetableResponseDto(
       body: '<!doctype html><html><body><form action="https://vpn.bitc.edu.cn/iam/login">登录</form></body></html>',
@@ -229,5 +303,75 @@ ZfTimetableResponseDto _fixtureResponse() {
   return ZfTimetableResponseDto(
     body: body,
     contentType: 'application/json; charset=utf-8',
+  );
+}
+
+ZfTimetableResponseDto _timingResponse({
+  required int periodCount,
+  required List<int> groupCounts,
+  bool numberAsString = false,
+  String? mutation,
+}) {
+  final groups = <Map<String, Object?>>[];
+  final labels = ['上午', '下午', '晚上'];
+  for (var index = 0; index < groupCounts.length; index += 1) {
+    if (groupCounts[index] == 0) continue;
+    groups.add({
+      'code': 'g$index',
+      'name': labels[index],
+      'count': mutation == 'count' && index == 0
+          ? groupCounts[index] + 1
+          : groupCounts[index],
+    });
+  }
+  final periods = <Map<String, Object?>>[];
+  var number = 1;
+  for (var group = 0; group < groupCounts.length; group += 1) {
+    for (var offset = 0; offset < groupCounts[group]; offset += 1) {
+      final hour = 8 + number;
+      periods.add({
+        'number': numberAsString ? '$number' : number,
+        'startTime': number == 1
+            ? '8:00'
+            : '${hour.toString().padLeft(2, '0')}:00',
+        'endTime': mutation == 'inverted' && number == 1
+            ? '07:45'
+            : (number == 1 ? '8:45' : '${hour.toString().padLeft(2, '0')}:45'),
+        'groupCode': mutation == 'group' && number == 1 ? 'missing' : 'g$group',
+      });
+      number += 1;
+    }
+  }
+  if (mutation == 'duplicate') periods[1]['number'] = periods[0]['number'];
+  if (mutation == 'overlap') periods[1]['startTime'] = '8:30';
+  if (mutation == 'groupOrder') {
+    periods[3]['groupCode'] = 'g1';
+    periods[4]['groupCode'] = 'g0';
+  }
+  return ZfTimetableResponseDto(
+    body: jsonEncode({
+      'kbList': [
+        {
+          'jxb_id': 'fictional-course',
+          'kch': 'FICTION-101',
+          'kcmc': '星际园艺（虚构）',
+          'xm': '虚构教师',
+          'xqj': 1,
+          'jcs': mutation == 'coverage' ? '1-${periodCount + 1}' : '1-2',
+          'zcd': '1-2周',
+          'timingProfileId': 'profile-0',
+        },
+      ],
+      'sjkList': <Object?>[],
+      'timingProfiles': [
+        {
+          'id': 'profile-0',
+          'name': '星河校区（虚构）',
+          'groups': groups,
+          'periods': periods,
+        },
+      ],
+    }),
+    contentType: 'application/json',
   );
 }

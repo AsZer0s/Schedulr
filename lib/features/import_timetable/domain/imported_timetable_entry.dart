@@ -13,6 +13,7 @@ final class ImportedTimetableEntry {
     this.teacher,
     this.location,
     this.notes,
+    this.timingProfileId,
   }) : weeks = Set.unmodifiable(weeks) {
     if (externalId.trim().isEmpty) {
       throw ArgumentError.value(externalId, 'externalId', 'Must not be empty');
@@ -32,6 +33,13 @@ final class ImportedTimetableEntry {
     if (this.weeks.isEmpty || this.weeks.any((week) => week < 1)) {
       throw ArgumentError.value(weeks, 'weeks', 'Must contain positive weeks');
     }
+    if (timingProfileId != null && timingProfileId!.trim().isEmpty) {
+      throw ArgumentError.value(
+        timingProfileId,
+        'timingProfileId',
+        'Must not be empty when provided',
+      );
+    }
   }
 
   final String externalId;
@@ -39,6 +47,7 @@ final class ImportedTimetableEntry {
   final String? teacher;
   final String? location;
   final String? notes;
+  final String? timingProfileId;
 
   /// ISO weekday: Monday is 1 and Sunday is 7.
   final int dayOfWeek;

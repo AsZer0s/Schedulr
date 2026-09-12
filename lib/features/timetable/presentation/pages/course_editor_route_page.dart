@@ -35,6 +35,7 @@ class CourseEditorRoutePage extends ConsumerWidget {
         }
         return CourseEditorPage(
           semester: value.semester,
+          periodDefinitions: value.periodDefinitions,
           initialCourse: initialCourse,
           onSave: (course) async {
             await ref.read(timetableRepositoryProvider).upsertCourse(course);

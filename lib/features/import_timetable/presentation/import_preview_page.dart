@@ -7,12 +7,16 @@ class ImportPreviewPage extends StatelessWidget {
     required this.preview,
     required this.sourceName,
     required this.onCommit,
+    this.timingProfile,
+    this.hasCalendarUpdate = false,
     super.key,
   });
 
   final ImportPreview preview;
   final String sourceName;
   final Future<void> Function() onCommit;
+  final ImportedTimingProfile? timingProfile;
+  final bool hasCalendarUpdate;
 
   @override
   Widget build(BuildContext context) {
@@ -21,7 +25,11 @@ class ImportPreviewPage extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            _ImportSummary(preview: preview, sourceName: sourceName),
+            _ImportSummary(
+              preview: preview,
+              sourceName: sourceName,
+              timingProfile: timingProfile,
+            ),
             if (preview.issues.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -61,11 +69,23 @@ class ImportPreviewPage extends StatelessWidget {
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed: preview.canCommit && preview.addedCount > 0
+                  onPressed:
+                      preview.canCommit &&
+                          (preview.addedCount > 0 ||
+                              hasCalendarUpdate ||
+                              timingProfile?.schedule != null)
                       ? () async => onCommit()
                       : null,
                   icon: const Icon(Icons.download_done_rounded),
-                  label: Text('导入 ${preview.addedCount} 条新安排'),
+                  label: Text(
+                    preview.addedCount > 0
+                        ? '导入 ${preview.addedCount} 条新安排'
+                        : timingProfile?.schedule != null && hasCalendarUpdate
+                        ? '更新校历与作息'
+                        : timingProfile?.schedule != null
+                        ? '更新作息'
+                        : '更新校历',
+                  ),
                 ),
               ),
             ),
@@ -77,10 +97,15 @@ class ImportPreviewPage extends StatelessWidget {
 }
 
 class _ImportSummary extends StatelessWidget {
-  const _ImportSummary({required this.preview, required this.sourceName});
+  const _ImportSummary({
+    required this.preview,
+    required this.sourceName,
+    this.timingProfile,
+  });
 
   final ImportPreview preview;
   final String sourceName;
+  final ImportedTimingProfile? timingProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -101,6 +126,20 @@ class _ImportSummary extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 14),
+          if (timingProfile?.schedule case final schedule?) ...[
+            Text(
+              '作息：${timingProfile!.name}',
+              style: theme.textTheme.titleSmall,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              _scheduleSummary(schedule),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 14),
+          ],
           Wrap(
             spacing: 8,
             runSpacing: 8,
@@ -125,6 +164,22 @@ class _ImportSummary extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _scheduleSummary(ImportedPeriodSchedule schedule) {
+    String group(ImportedPeriodGroup value, String label) {
+      final first = schedule.firstFor(value);
+      final last = schedule.lastFor(value);
+      final count = schedule.countFor(value);
+      if (count == 0 || first == null || last == null) return '$label 0 节';
+      return '$label $count 节（${first.startTime}–${last.endTime}）';
+    }
+
+    return [
+      group(ImportedPeriodGroup.morning, '上午'),
+      group(ImportedPeriodGroup.afternoon, '下午'),
+      group(ImportedPeriodGroup.evening, '晚上'),
+    ].join(' · ');
   }
 }
 

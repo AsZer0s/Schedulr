@@ -10,12 +10,14 @@ class CourseEditorPage extends StatefulWidget {
   const CourseEditorPage({
     required this.semester,
     required this.onSave,
+    this.periodDefinitions = const [],
     this.initialCourse,
     this.onDelete,
     super.key,
   });
 
   final Semester semester;
+  final List<PeriodDefinition> periodDefinitions;
   final CourseWithSessions? initialCourse;
   final Future<void> Function(CourseWithSessions course) onSave;
   final Future<void> Function()? onDelete;
@@ -97,10 +99,21 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     return null;
   }
 
+  List<PeriodDefinition> get _availablePeriods {
+    final definitions = widget.periodDefinitions.toList()
+      ..sort((first, second) => first.period.compareTo(second.period));
+    return definitions;
+  }
+
   String? _positivePeriodValidator(String? value) {
     final period = int.tryParse(value ?? '');
     if (period == null || period < 1) {
       return '请输入大于 0 的节次';
+    }
+    final availablePeriods = _availablePeriods;
+    if (availablePeriods.isNotEmpty &&
+        !availablePeriods.any((definition) => definition.period == period)) {
+      return '请选择学校作息中存在的节次';
     }
     return null;
   }
@@ -347,6 +360,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
                     enabled: !busy,
                     canRemove: _sessions.length > 1,
                     maximumWeek: widget.semester.teachingWeeks,
+                    availablePeriods: _availablePeriods,
                     positivePeriodValidator: _positivePeriodValidator,
                     endPeriodValidator: _endPeriodValidator,
                     weekExpressionValidator: _weekExpressionValidator,
@@ -458,6 +472,7 @@ class _SessionEditorCard extends StatelessWidget {
     required this.enabled,
     required this.canRemove,
     required this.maximumWeek,
+    required this.availablePeriods,
     required this.positivePeriodValidator,
     required this.endPeriodValidator,
     required this.weekExpressionValidator,
@@ -471,6 +486,7 @@ class _SessionEditorCard extends StatelessWidget {
   final bool enabled;
   final bool canRemove;
   final int maximumWeek;
+  final List<PeriodDefinition> availablePeriods;
   final String? Function(String? value) positivePeriodValidator;
   final String? Function(_SessionDraft session, String? value)
   endPeriodValidator;
@@ -532,34 +548,44 @@ class _SessionEditorCard extends StatelessWidget {
               },
             ),
             const SizedBox(height: 12),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    key: Key('session-$index-start-period'),
-                    controller: draft.startPeriodController,
-                    enabled: enabled,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(labelText: '开始节次'),
-                    validator: positivePeriodValidator,
+            if (availablePeriods.isEmpty)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      key: Key('session-$index-start-period'),
+                      controller: draft.startPeriodController,
+                      enabled: enabled,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(labelText: '开始节次'),
+                      validator: positivePeriodValidator,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextFormField(
-                    key: Key('session-$index-end-period'),
-                    controller: draft.endPeriodController,
-                    enabled: enabled,
-                    keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                    decoration: const InputDecoration(labelText: '结束节次'),
-                    validator: (value) => endPeriodValidator(draft, value),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      key: Key('session-$index-end-period'),
+                      controller: draft.endPeriodController,
+                      enabled: enabled,
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                      decoration: const InputDecoration(labelText: '结束节次'),
+                      validator: (value) => endPeriodValidator(draft, value),
+                    ),
                   ),
-                ),
-              ],
-            ),
+                ],
+              )
+            else
+              _PeriodSelectors(
+                index: index,
+                draft: draft,
+                enabled: enabled,
+                periods: availablePeriods,
+                positivePeriodValidator: positivePeriodValidator,
+                endPeriodValidator: endPeriodValidator,
+              ),
             const SizedBox(height: 12),
             TextFormField(
               key: Key('session-$index-location'),
@@ -593,6 +619,126 @@ class _SessionEditorCard extends StatelessWidget {
 
   static String _weekdayName(int weekday) {
     return const ['一', '二', '三', '四', '五', '六', '日'][weekday - 1];
+  }
+}
+
+class _PeriodSelectors extends StatefulWidget {
+  const _PeriodSelectors({
+    required this.index,
+    required this.draft,
+    required this.enabled,
+    required this.periods,
+    required this.positivePeriodValidator,
+    required this.endPeriodValidator,
+  });
+
+  final int index;
+  final _SessionDraft draft;
+  final bool enabled;
+  final List<PeriodDefinition> periods;
+  final String? Function(String? value) positivePeriodValidator;
+  final String? Function(_SessionDraft session, String? value)
+  endPeriodValidator;
+
+  @override
+  State<_PeriodSelectors> createState() => _PeriodSelectorsState();
+}
+
+class _PeriodSelectorsState extends State<_PeriodSelectors> {
+  int? _controllerPeriod(TextEditingController controller) {
+    final value = int.tryParse(controller.text);
+    if (value == null ||
+        !widget.periods.any((definition) => definition.period == value)) {
+      return null;
+    }
+    return value;
+  }
+
+  String _label(PeriodDefinition definition) {
+    return '第${definition.period}节 · ${definition.startTime}–${definition.endTime}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final start = _controllerPeriod(widget.draft.startPeriodController);
+    final end = _controllerPeriod(widget.draft.endPeriodController);
+    final endPeriods = start == null
+        ? widget.periods
+        : widget.periods
+              .where((definition) => definition.period >= start)
+              .toList(growable: false);
+    final validEnd = endPeriods.any((definition) => definition.period == end)
+        ? end
+        : null;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<int>(
+            key: Key('session-${widget.index}-start-period'),
+            initialValue: start,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: '开始节次'),
+            items: [
+              for (final definition in widget.periods)
+                DropdownMenuItem(
+                  value: definition.period,
+                  child: Text(
+                    _label(definition),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: widget.enabled
+                ? (value) {
+                    if (value == null) return;
+                    widget.draft.startPeriodController.text = '$value';
+                    final currentEnd = int.tryParse(
+                      widget.draft.endPeriodController.text,
+                    );
+                    if (currentEnd == null || currentEnd < value) {
+                      widget.draft.endPeriodController.text = '$value';
+                    }
+                    setState(() {});
+                  }
+                : null,
+            validator: (value) =>
+                widget.positivePeriodValidator(value?.toString()),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: DropdownButtonFormField<int>(
+            key: Key('session-${widget.index}-end-period'),
+            initialValue: validEnd,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: '结束节次'),
+            items: [
+              for (final definition in endPeriods)
+                DropdownMenuItem(
+                  value: definition.period,
+                  child: Text(
+                    _label(definition),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: widget.enabled
+                ? (value) {
+                    if (value == null) return;
+                    widget.draft.endPeriodController.text = '$value';
+                    setState(() {});
+                  }
+                : null,
+            validator: (value) =>
+                widget.endPeriodValidator(widget.draft, value?.toString()),
+          ),
+        ),
+      ],
+    );
   }
 }
 

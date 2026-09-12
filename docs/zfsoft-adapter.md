@@ -61,6 +61,11 @@ integrations/zfsoft/
 - 请求参数为 `xnm`、正方学期代码 `xqm`、`kzlx=ck` 和空 `xsdm`。
 - App 使用域名受限的 WebView 建立校方会话，密码不进入 Flutter 层。
 - WebView 在发送课表给 Flutter 前执行字段白名单，只保留课程解析必需信息，以及 `rqazcList` 中的 `rq`、`xqj`、`zc` 和 primitive `zs`。
+- WebView 从原始 `kbList` 内部提取校区 `xqh_id`/`xqmc`，但只向 Flutter 暴露 `profile-0` 等安全 profile ID；课程通过 `timingProfileId` 关联 profile。
+- 每个校区分别 POST `/kbcx/xskbcx_cxRsd.html?gnmkdm=N2151` 与 `/kbcx/xskbcx_cxRjc.html?gnmkdm=N2151`，请求至少包含 `xnm`、`xqm`、`xqh_id`。
+- Flutter 只接收正规化 `timingProfiles`，不接收 `xsxx`、学号、学生姓名、`queryModel`、`userModel` 或 Cookie；课程教师字段 `xm` 保留。
+- 作息会校验 group code/name/count、唯一连续的正节次、时间格式与先后顺序、group 关联、实际组节数及课程覆盖。失败 profile 只产生 warning，课程仍可导入且本地作息不更新。
+- 多个不同有效 profile 由用户选择一个应用；相同 schedule 自动去重。提交时学期、课程、作息在同一事务写入；有效作息整体替换并使用稳定 ID `$semesterId-period-$number`。merge 若不能覆盖合并后的全部课程，保留旧作息并返回 warning。
 - BITC 返回可验证的日期/星期/教学周锚点时，导入可自动定位第一教学周周一；锚点缺失、星期不符或推导冲突时不会猜测或覆盖本地开学日期，并提示用户在学期设置中手动确认。
 
 该适配只覆盖 BITC 当前部署，不应复用为“通用正方 V9”。Android/iOS 真机认证与 Cookie 生命周期仍需最终验收。

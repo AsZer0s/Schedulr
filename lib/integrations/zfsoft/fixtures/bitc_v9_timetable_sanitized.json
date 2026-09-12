@@ -11,6 +11,7 @@
       "zcd": "2-4周(双),5-7周(单),8-14周",
       "xqmc": "虚构北校区",
       "cdmc": "虚构楼 A-101",
+      "timingProfileId": "profile-0",
       "jxbmc": "虚构教学班甲",
       "khfsmc": "虚构考核",
       "xf": "2.0",
@@ -27,6 +28,7 @@
       "zcd": "1-9周(单)",
       "xqmc": "虚构北校区",
       "cdmc": "虚构楼 B-202",
+      "timingProfileId": "profile-0",
       "jxbmc": "虚构教学班甲",
       "khfsmc": "虚构考核",
       "xf": "2.0",
@@ -43,6 +45,7 @@
       "zcd": "1-3周,6周,10-12周(双)",
       "xqmc": "",
       "cdmc": "",
+      "timingProfileId": "profile-0",
       "jxbmc": "虚构教学班乙",
       "khfsmc": "虚构考核",
       "xf": "1.5",
@@ -63,6 +66,29 @@
       "rq": "2026-09-23",
       "xqj": "3",
       "zc": 3
+    }
+  ],
+  "timingProfiles": [
+    {
+      "id": "profile-0",
+      "name": "虚构北校区",
+      "groups": [
+        {"code": "am", "name": "上午", "count": 4},
+        {"code": "pm", "name": "下午", "count": 4},
+        {"code": "ev", "name": "晚上", "count": 2}
+      ],
+      "periods": [
+        {"number": 1, "startTime": "8:00", "endTime": "8:45", "groupCode": "am"},
+        {"number": 2, "startTime": "8:55", "endTime": "9:40", "groupCode": "am"},
+        {"number": 3, "startTime": "10:00", "endTime": "10:45", "groupCode": "am"},
+        {"number": 4, "startTime": "10:55", "endTime": "11:40", "groupCode": "am"},
+        {"number": 5, "startTime": "14:00", "endTime": "14:45", "groupCode": "pm"},
+        {"number": 6, "startTime": "14:55", "endTime": "15:40", "groupCode": "pm"},
+        {"number": 7, "startTime": "16:00", "endTime": "16:45", "groupCode": "pm"},
+        {"number": 8, "startTime": "16:55", "endTime": "17:40", "groupCode": "pm"},
+        {"number": 9, "startTime": "19:00", "endTime": "19:45", "groupCode": "ev"},
+        {"number": 10, "startTime": "19:55", "endTime": "20:40", "groupCode": "ev"}
+      ]
     }
   ],
   "xsxx": {

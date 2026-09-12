@@ -94,6 +94,86 @@ void main() {
     expect(stored!.semester.startDate, current.semester.startDate);
     expect(stored.semester.teachingWeeks, current.semester.teachingWeeks);
   });
+
+  test('replace applies stable periods and removes old high periods', () async {
+    final withHighPeriod = current.copyWith(
+      periodDefinitions: [
+        ...current.periodDefinitions,
+        PeriodDefinition(
+          id: 'old-period-12',
+          semesterId: current.semester.id,
+          period: 12,
+          startTime: '20:00',
+          endTime: '20:45',
+          group: PeriodGroup.evening,
+        ),
+      ],
+    );
+    await repository.replaceSemesterTimetable(withHighPeriod);
+    await coordinator.commit(
+      currentTimetable: withHighPeriod,
+      request: ImportCommitRequest(
+        preview: _preview(ImportStrategy.replace),
+        timingProfile: ImportedTimingProfile(
+          id: 'profile-0',
+          name: '星河校区（虚构）',
+          schedule: _schedule(4),
+        ),
+      ),
+    );
+
+    final stored = await repository.getSemesterTimetable(current.semester.id);
+    expect(stored!.periodDefinitions.map((period) => period.period), [
+      1,
+      2,
+      3,
+      4,
+    ]);
+    expect(stored.periodDefinitions.first.id, 'semester-period-1');
+  });
+
+  test(
+    'merge coverage failure keeps old periods and returns warning',
+    () async {
+      final result = await coordinator.commit(
+        currentTimetable: current,
+        request: ImportCommitRequest(
+          preview: _preview(ImportStrategy.merge),
+          timingProfile: ImportedTimingProfile(
+            id: 'profile-0',
+            name: '星河校区（虚构）',
+            schedule: _schedule(1),
+          ),
+        ),
+      );
+
+      final stored = await repository.getSemesterTimetable(current.semester.id);
+      expect(stored!.periodDefinitions, current.periodDefinitions);
+      expect(result.issues, hasLength(1));
+      expect(result.issues.single.severity, ImportIssueSeverity.warning);
+      expect(stored.courses, hasLength(2));
+    },
+  );
+
+  test('metadata-only commit persists calendar and schedule', () async {
+    await coordinator.commit(
+      currentTimetable: current,
+      request: ImportCommitRequest(
+        preview: ImportPreview(strategy: ImportStrategy.merge, items: const []),
+        calendar: ImportedSemesterCalendar(startDate: DateTime(2026, 9, 14)),
+        timingProfile: ImportedTimingProfile(
+          id: 'profile-0',
+          name: '星河校区（虚构）',
+          schedule: _schedule(2),
+        ),
+      ),
+    );
+
+    final stored = await repository.getSemesterTimetable(current.semester.id);
+    expect(stored!.semester.startDate, DateTime(2026, 9, 14));
+    expect(stored.periodDefinitions, hasLength(2));
+    expect(stored.courses, hasLength(1));
+  });
 }
 
 ImportPreview _preview(ImportStrategy strategy) {
@@ -165,6 +245,20 @@ SemesterTimetable _initialTimetable() {
         endTime: '08:45',
         group: PeriodGroup.morning,
       ),
+    ],
+  );
+}
+
+ImportedPeriodSchedule _schedule(int count) {
+  return ImportedPeriodSchedule(
+    periods: [
+      for (var number = 1; number <= count; number += 1)
+        ImportedPeriod(
+          number: number,
+          startTime: '${(7 + number).toString().padLeft(2, '0')}:00',
+          endTime: '${(7 + number).toString().padLeft(2, '0')}:45',
+          group: ImportedPeriodGroup.morning,
+        ),
     ],
   );
 }

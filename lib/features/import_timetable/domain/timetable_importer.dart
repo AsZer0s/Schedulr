@@ -1,4 +1,6 @@
+import 'import_metadata.dart';
 import 'import_models.dart';
+import 'imported_period_schedule.dart';
 import 'imported_timetable_entry.dart';
 
 enum ImportAuthRequestKind { credentials, verificationCode, browserSession }
@@ -74,46 +76,43 @@ final class ImportAuthStatus {
   bool get isAuthenticated => kind == ImportAuthStatusKind.authenticated;
 }
 
-final class ImportTermRequest {
-  const ImportTermRequest({required this.academicYear, required this.term});
-
-  final String academicYear;
-  final int term;
-}
-
-/// Verified semester calendar metadata supplied by an importer.
-final class ImportedSemesterCalendar {
-  ImportedSemesterCalendar({required DateTime startDate, this.teachingWeeks})
-    : startDate = DateTime(startDate.year, startDate.month, startDate.day) {
-    final weeks = teachingWeeks;
-    if (weeks != null && weeks < 1) {
-      throw ArgumentError.value(
-        weeks,
-        'teachingWeeks',
-        'Must be positive when provided.',
-      );
-    }
-  }
-
-  final DateTime startDate;
-  final int? teachingWeeks;
-}
-
 final class ImportedTimetable {
   ImportedTimetable({
     required this.sourceName,
     required this.term,
     required Iterable<ImportedTimetableEntry> entries,
     Iterable<ImportIssue> issues = const [],
+    Iterable<ImportedTimingProfile> timingProfiles = const [],
     this.calendar,
   }) : entries = List.unmodifiable(entries),
-       issues = List.unmodifiable(issues);
+       issues = List.unmodifiable(issues),
+       timingProfiles = List.unmodifiable(timingProfiles) {
+    final profileIds = this.timingProfiles.map((profile) => profile.id).toSet();
+    if (profileIds.length != this.timingProfiles.length) {
+      throw ArgumentError.value(
+        timingProfiles,
+        'timingProfiles',
+        'Profile ids must be unique.',
+      );
+    }
+    for (final entry in this.entries) {
+      final profileId = entry.timingProfileId;
+      if (profileId != null && !profileIds.contains(profileId)) {
+        throw ArgumentError.value(
+          profileId,
+          'entries',
+          'Entry references an unknown timing profile.',
+        );
+      }
+    }
+  }
 
   final String sourceName;
   final ImportTermRequest term;
   final List<ImportedTimetableEntry> entries;
   final List<ImportIssue> issues;
   final ImportedSemesterCalendar? calendar;
+  final List<ImportedTimingProfile> timingProfiles;
 }
 
 enum TimetableImportFailureKind {

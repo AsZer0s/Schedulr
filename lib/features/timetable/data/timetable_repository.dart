@@ -179,25 +179,34 @@ class TimetableRepository {
   }
 
   Future<void> replaceSemesterTimetable(SemesterTimetable timetable) async {
-    _validateTimetable(timetable);
-    await database.transaction(() async {
-      await database
-          .into(database.semesters)
-          .insertOnConflictUpdate(_semesterCompanion(timetable.semester));
-      await (database.delete(
-        database.periodDefinitions,
-      )..where((table) => table.semesterId.equals(timetable.semester.id))).go();
-      await _deleteCoursesForSemester(timetable.semester.id);
-      await _insertTimetableChildren(timetable);
-    });
+    await applyImport(timetable, replaceCourses: true, replacePeriods: true);
   }
 
   Future<void> mergeSemesterTimetable(SemesterTimetable timetable) async {
+    await applyImport(timetable, replaceCourses: false, replacePeriods: false);
+  }
+
+  /// Atomically applies semester metadata, courses, and period definitions.
+  /// Course replacement and period replacement are deliberately independent.
+  Future<void> applyImport(
+    SemesterTimetable timetable, {
+    required bool replaceCourses,
+    required bool replacePeriods,
+  }) async {
     _validateTimetable(timetable);
     await database.transaction(() async {
       await database
           .into(database.semesters)
           .insertOnConflictUpdate(_semesterCompanion(timetable.semester));
+      if (replacePeriods) {
+        await (database.delete(
+              database.periodDefinitions,
+            )..where((table) => table.semesterId.equals(timetable.semester.id)))
+            .go();
+      }
+      if (replaceCourses) {
+        await _deleteCoursesForSemester(timetable.semester.id);
+      }
       for (final definition in timetable.periodDefinitions) {
         await database
             .into(database.periodDefinitions)
@@ -214,20 +223,6 @@ class TimetableRepository {
         }
       }
     });
-  }
-
-  Future<void> _insertTimetableChildren(SemesterTimetable timetable) async {
-    for (final definition in timetable.periodDefinitions) {
-      await database
-          .into(database.periodDefinitions)
-          .insert(_periodCompanion(definition));
-    }
-    for (final course in timetable.courses) {
-      await database
-          .into(database.courses)
-          .insert(_courseCompanion(course.course));
-      await _insertSessions(course.sessions);
-    }
   }
 
   Future<void> _insertSessions(Iterable<CourseSession> sessions) async {
@@ -308,23 +303,45 @@ class TimetableRepository {
   }
 
   void _validateTimetable(SemesterTimetable timetable) {
+    final periodIds = <String>{};
+    final periodNumbers = <int>{};
     for (final definition in timetable.periodDefinitions) {
       if (definition.semesterId != timetable.semester.id) {
         throw ArgumentError('Period definition belongs to another semester.');
       }
+      if (!periodIds.add(definition.id)) {
+        throw ArgumentError(
+          'Duplicate period definition id: ${definition.id}.',
+        );
+      }
+      if (!periodNumbers.add(definition.period)) {
+        throw ArgumentError('Duplicate period number: ${definition.period}.');
+      }
     }
+    final courseIds = <String>{};
+    final sessionIds = <String>{};
     for (final course in timetable.courses) {
       if (course.course.semesterId != timetable.semester.id) {
         throw ArgumentError('Course belongs to another semester.');
       }
-      _validateCourseGraph(course);
+      if (!courseIds.add(course.course.id)) {
+        throw ArgumentError('Duplicate course id: ${course.course.id}.');
+      }
+      _validateCourseGraph(course, sessionIds: sessionIds);
     }
   }
 
-  void _validateCourseGraph(CourseWithSessions course) {
+  void _validateCourseGraph(
+    CourseWithSessions course, {
+    Set<String>? sessionIds,
+  }) {
+    final ids = sessionIds ?? <String>{};
     for (final session in course.sessions) {
       if (session.courseId != course.course.id) {
         throw ArgumentError('Course session belongs to another course.');
+      }
+      if (!ids.add(session.id)) {
+        throw ArgumentError('Duplicate course session id: ${session.id}.');
       }
     }
   }

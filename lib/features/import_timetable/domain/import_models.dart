@@ -1,3 +1,5 @@
+import 'import_metadata.dart';
+import 'imported_period_schedule.dart';
 import 'imported_timetable_entry.dart';
 
 /// How imported data should be persisted after the user accepts a preview.
@@ -105,14 +107,25 @@ final class ImportPreview {
 /// Data the application repository needs to persist an accepted preview.
 /// Persistence itself intentionally remains outside this module.
 final class ImportCommitRequest {
-  const ImportCommitRequest({required this.preview});
+  const ImportCommitRequest({
+    required this.preview,
+    this.term,
+    this.calendar,
+    this.timingProfile,
+  });
 
   final ImportPreview preview;
+  final ImportTermRequest? term;
+  final ImportedSemesterCalendar? calendar;
+  final ImportedTimingProfile? timingProfile;
 
   ImportStrategy get strategy => preview.strategy;
   Iterable<ImportedTimetableEntry> get entriesToAdd => preview.items
       .where((item) => item.kind == ImportPreviewItemKind.added)
       .map((item) => item.imported);
+
+  bool get hasMetadataUpdate =>
+      term != null || calendar != null || timingProfile?.schedule != null;
 }
 
 final class ImportCommitResult {

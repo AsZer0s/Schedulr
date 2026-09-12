@@ -15,12 +15,7 @@ class TimetableImportPage extends StatefulWidget {
   });
 
   final List<ExistingTimetableEntry> existingEntries;
-  final Future<void> Function(
-    ImportCommitRequest request,
-    ImportTermRequest term,
-    ImportedSemesterCalendar? calendar,
-  )
-  onCommit;
+  final Future<void> Function(ImportCommitRequest request) onCommit;
 
   @override
   State<TimetableImportPage> createState() => _TimetableImportPageState();
@@ -68,6 +63,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
         ImportSourceChoice.demo => await _fetchDemoTimetable(),
       };
       if (timetable == null || !mounted) return;
+      final selectedProfile = await _selectTimingProfile(timetable);
+      if (!mounted) return;
       final calculated = const ImportPreviewCalculator().calculate(
         imported: timetable.entries,
         existing: _strategy == ImportStrategy.replace
@@ -85,16 +82,32 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
           builder: (context) => ImportPreviewPage(
             preview: preview,
             sourceName: timetable.sourceName,
+            timingProfile: selectedProfile,
+            hasCalendarUpdate: timetable.calendar != null,
             onCommit: () async {
               await widget.onCommit(
-                ImportCommitRequest(preview: preview),
-                timetable.term,
-                timetable.calendar,
+                ImportCommitRequest(
+                  preview: preview,
+                  term: timetable.term,
+                  calendar: timetable.calendar,
+                  timingProfile: selectedProfile,
+                ),
               );
               if (!context.mounted) return;
               Navigator.of(context).pop();
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('已导入 ${preview.addedCount} 条新安排。')),
+                SnackBar(
+                  content: Text(
+                    preview.addedCount > 0
+                        ? '已导入 ${preview.addedCount} 条新安排。'
+                        : selectedProfile?.schedule != null &&
+                              timetable.calendar != null
+                        ? '校历与作息已更新。'
+                        : selectedProfile?.schedule != null
+                        ? '作息已更新。'
+                        : '校历已更新。',
+                  ),
+                ),
               );
             },
           ),
@@ -109,6 +122,61 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  Future<ImportedTimingProfile?> _selectTimingProfile(
+    ImportedTimetable timetable,
+  ) async {
+    final selection = selectTimingProfilesForImport(
+      profiles: timetable.timingProfiles,
+      entries: timetable.entries,
+    );
+    if (selection.defaultProfile == null) return null;
+    if (!selection.requiresUserChoice) return selection.defaultProfile;
+
+    final unique = selection.options;
+    final counts = <String, int>{};
+    for (final entry in timetable.entries) {
+      final id = entry.timingProfileId;
+      if (id != null) counts[id] = (counts[id] ?? 0) + 1;
+    }
+    var selected = selection.defaultProfile!;
+    return showDialog<ImportedTimingProfile>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          title: const Text('选择本学期作息校区'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('检测到不同校区使用不同作息。只会将所选校区作息应用到本学期。'),
+              const SizedBox(height: 12),
+              for (final profile in unique)
+                ListTile(
+                  leading: Icon(
+                    profile.id == selected.id
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                  ),
+                  title: Text(profile.name),
+                  subtitle: Text('${counts[profile.id] ?? 0} 条课程安排'),
+                  onTap: () {
+                    setDialogState(() => selected = profile);
+                  },
+                ),
+            ],
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(selected),
+              child: const Text('使用此作息'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<ImportedTimetable?> _fetchBitcTimetable() async {
