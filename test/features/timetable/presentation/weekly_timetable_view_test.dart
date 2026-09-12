@@ -397,6 +397,188 @@ void main() {
       });
     }
 
+    testWidgets('课程卡显示课程名、教师和精简地点并保留完整语义', (tester) async {
+      final course = CourseWithSessions(
+        course: Course(
+          id: 'details',
+          semesterId: 'semester',
+          name: '数据分析',
+          teacher: '亢老师',
+          colorValue: 0xFF00695C,
+        ),
+        sessions: [
+          CourseSession(
+            id: 'details-session',
+            courseId: 'details',
+            weekday: DateTime.monday,
+            startPeriod: 1,
+            endPeriod: 2,
+            location: '虚构校区 · 东区13-301系统应用实训室1',
+            weeks: const {1},
+          ),
+        ],
+      );
+
+      await _pumpView(
+        tester,
+        timetable: _timetable([course]),
+        teachingWeek: 1,
+        width: 390,
+      );
+
+      expect(find.text('数据分析'), findsOneWidget);
+      expect(find.text('亢老师'), findsOneWidget);
+      expect(find.text('13-301'), findsOneWidget);
+      expect(find.textContaining('系统应用实训室'), findsNothing);
+      final semantics = tester.getSemantics(
+        find.byKey(const ValueKey<String>('course-session-details-session')),
+      );
+      expect(semantics.label, contains('亢老师'));
+      expect(semantics.label, contains('虚构校区 · 东区13-301系统应用实训室1'));
+    });
+
+    testWidgets('教师或地点为空时不渲染占位行但语义说明缺失', (tester) async {
+      final course = CourseWithSessions(
+        course: Course(
+          id: 'missing-meta',
+          semesterId: 'semester',
+          name: '无元数据课程',
+          colorValue: 0xFF00695C,
+        ),
+        sessions: [
+          CourseSession(
+            id: 'missing-meta-session',
+            courseId: 'missing-meta',
+            weekday: DateTime.monday,
+            startPeriod: 1,
+            endPeriod: 2,
+            weeks: const {1},
+          ),
+        ],
+      );
+
+      await _pumpView(
+        tester,
+        timetable: _timetable([course]),
+        teachingWeek: 1,
+        width: 390,
+      );
+
+      expect(
+        find.byKey(
+          WeeklyTimetableView.courseTeacherKey('missing-meta-session'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.byKey(
+          WeeklyTimetableView.courseLocationKey('missing-meta-session'),
+        ),
+        findsNothing,
+      );
+      final semantics = tester.getSemantics(
+        find.byKey(
+          const ValueKey<String>('course-session-missing-meta-session'),
+        ),
+      );
+      expect(semantics.label, contains('教师未注明'));
+      expect(semantics.label, contains('地点未注明'));
+    });
+
+    for (final span in <int>[1, 2, 4]) {
+      testWidgets('$span 节课程均显示紧凑三项且不溢出', (tester) async {
+        final course = CourseWithSessions(
+          course: Course(
+            id: 'span-$span',
+            semesterId: 'semester',
+            name: '移动开发',
+            teacher: '陈老师',
+            colorValue: 0xFF00695C,
+          ),
+          sessions: [
+            CourseSession(
+              id: 'span-$span-session',
+              courseId: 'span-$span',
+              weekday: DateTime.tuesday,
+              startPeriod: 1,
+              endPeriod: span,
+              location: '东区14-311公共教室',
+              weeks: const {1},
+            ),
+          ],
+        );
+
+        await _pumpView(
+          tester,
+          timetable: _timetable([course]),
+          teachingWeek: 1,
+          width: 320,
+          textScaler: const TextScaler.linear(2),
+        );
+
+        expect(find.text('移动开发'), findsOneWidget);
+        expect(find.text('陈老师'), findsOneWidget);
+        expect(find.text('14-311'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('三门冲突在极窄子列降级但全部可点击且语义完整', (tester) async {
+      final courses = [
+        for (var index = 0; index < 3; index++)
+          CourseWithSessions(
+            course: Course(
+              id: 'triple-$index',
+              semesterId: 'semester',
+              name: '冲突${index + 1}',
+              teacher: '教师${index + 1}',
+              colorValue: 0xFF00695C,
+            ),
+            sessions: [
+              CourseSession(
+                id: 'triple-$index-session',
+                courseId: 'triple-$index',
+                weekday: DateTime.wednesday,
+                startPeriod: 1,
+                endPeriod: 2,
+                location: '东区13-30${index + 1}公共教室',
+                weeks: const {1},
+              ),
+            ],
+          ),
+      ];
+      final tapped = <String>[];
+
+      await _pumpView(
+        tester,
+        timetable: _timetable(courses),
+        teachingWeek: 1,
+        width: 320,
+        onCourseTap: (_, session) => tapped.add(session.id),
+      );
+
+      for (var index = 0; index < 3; index++) {
+        final card = find.byKey(
+          ValueKey<String>('course-session-triple-$index-session'),
+        );
+        expect(card, findsOneWidget);
+        expect(
+          find.byKey(
+            WeeklyTimetableView.courseTeacherKey('triple-$index-session'),
+          ),
+          findsNothing,
+        );
+        final semantics = tester.getSemantics(card);
+        expect(semantics.label, contains('教师${index + 1}'));
+        expect(semantics.label, contains('东区13-30${index + 1}公共教室'));
+        await tester.tapAt(tester.getCenter(card));
+        await tester.pump();
+      }
+
+      expect(tapped, hasLength(3));
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('当前教学周表头和 today 列按统一 metrics 覆盖', (tester) async {
       final timetable = _timetable([
         _course(

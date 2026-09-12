@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../core/presentation/location_formatter.dart';
 import '../../../core/time/teaching_calendar.dart';
 import '../domain/timetable_models.dart';
 
@@ -55,6 +56,12 @@ class WeeklyTimetableView extends StatefulWidget {
 
   static Key groupSeparatorKey(PeriodGroup group) =>
       ValueKey<String>('weekly-timetable-group-separator-${group.name}');
+
+  static Key courseTeacherKey(String sessionId) =>
+      ValueKey<String>('course-teacher-$sessionId');
+
+  static Key courseLocationKey(String sessionId) =>
+      ValueKey<String>('course-location-$sessionId');
 
   final SemesterTimetable timetable;
   final int teachingWeek;
@@ -1029,13 +1036,16 @@ class _CourseCardPositioned extends StatelessWidget {
         ThemeData.estimateBrightnessForColor(color) == Brightness.dark
         ? Colors.white
         : Colors.black87;
-    final location = session.location?.trim();
-    final locationLabel = location == null || location.isEmpty
+    final fullLocation = session.location?.trim();
+    final locationLabel = fullLocation == null || fullLocation.isEmpty
         ? '地点未注明'
-        : location;
+        : fullLocation;
+    final teacher = course.teacher?.trim();
+    final teacherLabel = teacher == null || teacher.isEmpty ? '教师未注明' : teacher;
+    final compactLocation = compactLocationLabel(fullLocation);
     final weekdayLabel = _WeekdayHeader.labels[session.weekday - 1];
     final semanticsLabel =
-        '${course.name}，$locationLabel，$weekdayLabel，'
+        '${course.name}，$teacherLabel，$locationLabel，$weekdayLabel，'
         '第${session.startPeriod}至${session.endPeriod}节，第$teachingWeek周';
     final top = metrics.periodTop(entry.startRow);
     final bottom = metrics.periodBottom(entry.endRow);
@@ -1066,44 +1076,55 @@ class _CourseCardPositioned extends StatelessWidget {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final padding = constraints.maxWidth < 36
-                    ? 2.0
+                    ? 1.5
                     : constraints.maxWidth < 60
-                    ? 4.0
-                    : 7.0;
-                final showLocation =
-                    constraints.maxWidth >= 70 && constraints.maxHeight >= 52;
+                    ? 2.5
+                    : 4.0;
+                final showMetadata = constraints.maxWidth >= 28;
+                final metadataStyle = TextStyle(
+                  color: foreground.withValues(alpha: 0.92),
+                  fontSize: 9,
+                  height: 1.0,
+                );
                 return Padding(
                   padding: EdgeInsets.all(padding),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.topLeft,
-                          child: Text(
-                            course.name,
-                            maxLines: showLocation ? 2 : 4,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.labelMedium
-                                ?.copyWith(
-                                  color: foreground,
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.05,
-                                ),
-                          ),
-                        ),
-                      ),
-                      if (showLocation) ...[
-                        const SizedBox(height: 2),
+                  child: MediaQuery.withClampedTextScaling(
+                    maxScaleFactor: 1.2,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          locationLabel,
-                          maxLines: 1,
+                          course.name,
+                          maxLines: showMetadata ? 1 : 3,
                           overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.labelSmall
-                              ?.copyWith(color: foreground, height: 1.05),
+                          style: const TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: FontWeight.w700,
+                            height: 1.0,
+                          ).copyWith(color: foreground),
                         ),
+                        if (showMetadata && teacher?.isNotEmpty == true)
+                          Text(
+                            key: WeeklyTimetableView.courseTeacherKey(
+                              session.id,
+                            ),
+                            teacher!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: metadataStyle,
+                          ),
+                        if (showMetadata && compactLocation != null)
+                          Text(
+                            key: WeeklyTimetableView.courseLocationKey(
+                              session.id,
+                            ),
+                            compactLocation,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: metadataStyle,
+                          ),
                       ],
-                    ],
+                    ),
                   ),
                 );
               },
