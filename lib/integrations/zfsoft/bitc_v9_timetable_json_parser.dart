@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:html/parser.dart' as html_parser;
 
+import '../../features/import_timetable/domain/import_timetable.dart';
 import 'zf_errors.dart';
 import 'zf_timetable_parser.dart';
 
@@ -9,10 +10,15 @@ final class BitcV9TimetableParseResult {
   BitcV9TimetableParseResult({
     required Iterable<ZfCourseDto> courses,
     required this.unscheduledCourseCount,
-  }) : courses = List.unmodifiable(courses);
+    this.calendar,
+    Iterable<ImportIssue> calendarIssues = const [],
+  }) : courses = List.unmodifiable(courses),
+       calendarIssues = List.unmodifiable(calendarIssues);
 
   final List<ZfCourseDto> courses;
   final int unscheduledCourseCount;
+  final ImportedSemesterCalendar? calendar;
+  final List<ImportIssue> calendarIssues;
 }
 
 /// Parser for the verified BITC Zhengfang V9 personal timetable JSON response.
@@ -61,9 +67,12 @@ final class BitcV9TimetableJsonParser implements ZfTimetableParser {
       final root = decoded.cast<String, Object?>();
       final kbList = _requiredObjectList(root, 'kbList');
       final sjkList = _requiredObjectList(root, 'sjkList');
+      final calendarResult = _parseCalendar(root);
       return BitcV9TimetableParseResult(
         courses: kbList.map(_parseCourse),
         unscheduledCourseCount: sjkList.length,
+        calendar: calendarResult.calendar,
+        calendarIssues: calendarResult.issues,
       );
     } on ZfException {
       rethrow;
@@ -80,6 +89,134 @@ final class BitcV9TimetableJsonParser implements ZfTimetableParser {
         cause: error,
       );
     }
+  }
+
+  _CalendarParseResult _parseCalendar(Map<String, Object?> root) {
+    final issues = <ImportIssue>[];
+    final rawAnchors = root['rqazcList'];
+    if (rawAnchors == null) {
+      issues.add(_calendarWarning('未提供可验证的校历日期，已保留本地开学日期。'));
+      return _CalendarParseResult(issues: issues);
+    }
+    if (rawAnchors is! List) {
+      issues.add(_calendarWarning('校历日期格式无效，已保留本地开学日期。'));
+      return _CalendarParseResult(issues: issues);
+    }
+
+    final topLevelWeek = _positiveInt(root['zs']);
+    if (root.containsKey('zs') && root['zs'] != null && topLevelWeek == null) {
+      issues.add(_calendarWarning('校历当前周次无效，已忽略该字段。'));
+    }
+
+    final inferredStartDates = <DateTime>{};
+    var missingWeek = false;
+    var invalidDate = false;
+    var invalidWeekday = false;
+    var invalidWeek = false;
+
+    for (final value in rawAnchors) {
+      if (value is! Map) {
+        invalidDate = true;
+        continue;
+      }
+      final anchor = value.cast<Object?, Object?>();
+      final date = _calendarDate(anchor['rq']);
+      final weekday = _boundedInt(anchor['xqj'], minimum: 1, maximum: 7);
+      final hasRowWeek = anchor.containsKey('zc') && anchor['zc'] != null;
+      final rowWeek = _positiveInt(anchor['zc']);
+      final week = hasRowWeek ? rowWeek : topLevelWeek;
+
+      if (date == null) invalidDate = true;
+      if (weekday == null) invalidWeekday = true;
+      if (hasRowWeek && rowWeek == null) invalidWeek = true;
+      if (!hasRowWeek && topLevelWeek == null) missingWeek = true;
+      if (date == null || weekday == null || week == null) continue;
+      if (date.weekday != weekday) {
+        invalidWeekday = true;
+        continue;
+      }
+
+      final daysFromSemesterStart = weekday - 1 + (week - 1) * 7;
+      inferredStartDates.add(
+        _subtractCalendarDays(date, daysFromSemesterStart),
+      );
+    }
+
+    if (invalidDate) {
+      issues.add(_calendarWarning('部分校历日期无效，已忽略对应日期锚点。'));
+    }
+    if (invalidWeekday) {
+      issues.add(_calendarWarning('部分校历星期无效或与日期不一致，已忽略对应日期锚点。'));
+    }
+    if (invalidWeek) {
+      issues.add(_calendarWarning('部分校历周次无效，已忽略对应日期锚点。'));
+    }
+    if (missingWeek) {
+      issues.add(_calendarWarning('校历日期缺少教学周次，无法据此定位开学日期。'));
+    }
+    if (inferredStartDates.isEmpty) {
+      issues.add(_calendarWarning('没有可验证的校历日期锚点，已保留本地开学日期。'));
+      return _CalendarParseResult(issues: issues);
+    }
+    if (inferredStartDates.length > 1) {
+      issues.add(_calendarWarning('校历日期锚点推导结果冲突，已保留本地开学日期。'));
+      return _CalendarParseResult(issues: issues);
+    }
+
+    return _CalendarParseResult(
+      calendar: ImportedSemesterCalendar(startDate: inferredStartDates.single),
+      issues: issues,
+    );
+  }
+
+  ImportIssue _calendarWarning(String message) {
+    return ImportIssue(
+      code: ImportIssueCode.invalidSourceData,
+      message: message,
+      severity: ImportIssueSeverity.warning,
+    );
+  }
+
+  DateTime? _calendarDate(Object? value) {
+    if (value is! String) return null;
+    final trimmed = value.trim();
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
+    if (match == null) return null;
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+    final date = DateTime(year, month, day);
+    if (date.year != year || date.month != month || date.day != day) {
+      return null;
+    }
+    return date;
+  }
+
+  DateTime _subtractCalendarDays(DateTime date, int days) {
+    return DateTime(date.year, date.month, date.day - days);
+  }
+
+  int? _positiveInt(Object? value) {
+    final parsed = switch (value) {
+      final int number => number,
+      final String text => int.tryParse(text.trim()),
+      _ => null,
+    };
+    return parsed != null && parsed > 0 ? parsed : null;
+  }
+
+  int? _boundedInt(
+    Object? value, {
+    required int minimum,
+    required int maximum,
+  }) {
+    final parsed = switch (value) {
+      final int number => number,
+      final String text => int.tryParse(text.trim()),
+      _ => null,
+    };
+    if (parsed == null || parsed < minimum || parsed > maximum) return null;
+    return parsed;
   }
 
   ZfCourseDto _parseCourse(Object? value) {
@@ -139,13 +276,8 @@ final class BitcV9TimetableJsonParser implements ZfTimetableParser {
     required int minimum,
     required int maximum,
   }) {
-    final value = map[key];
-    final parsed = switch (value) {
-      final int number => number,
-      final String text => int.tryParse(text.trim()),
-      _ => null,
-    };
-    if (parsed == null || parsed < minimum || parsed > maximum) {
+    final parsed = _boundedInt(map[key], minimum: minimum, maximum: maximum);
+    if (parsed == null) {
       throw FormatException('$key 必须是 $minimum-$maximum 的整数');
     }
     return parsed;
@@ -226,4 +358,12 @@ final class BitcV9TimetableJsonParser implements ZfTimetableParser {
         lower.contains('统一身份认证') ||
         lower.contains('登录');
   }
+}
+
+final class _CalendarParseResult {
+  _CalendarParseResult({this.calendar, required Iterable<ImportIssue> issues})
+    : issues = List.unmodifiable(issues);
+
+  final ImportedSemesterCalendar? calendar;
+  final List<ImportIssue> issues;
 }

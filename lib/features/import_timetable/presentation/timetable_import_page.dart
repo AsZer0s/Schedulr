@@ -18,6 +18,7 @@ class TimetableImportPage extends StatefulWidget {
   final Future<void> Function(
     ImportCommitRequest request,
     ImportTermRequest term,
+    ImportedSemesterCalendar? calendar,
   )
   onCommit;
 
@@ -88,6 +89,7 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
               await widget.onCommit(
                 ImportCommitRequest(preview: preview),
                 timetable.term,
+                timetable.calendar,
               );
               if (!context.mounted) return;
               Navigator.of(context).pop();

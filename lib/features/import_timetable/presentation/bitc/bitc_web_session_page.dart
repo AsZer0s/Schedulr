@@ -117,7 +117,7 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
       final completer = Completer<String>();
       _payloadCompleter = completer;
       await _controller.runJavaScript(
-        _fetchScript(
+        buildBitcTimetableBridgeScript(
           academicYearStart: widget.request.academicYearStart,
           termCode: widget.request.termCode,
         ),
@@ -141,65 +141,6 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
       _payloadCompleter = null;
       if (mounted) setState(() => _isFetching = false);
     }
-  }
-
-  String _fetchScript({
-    required String academicYearStart,
-    required String termCode,
-  }) {
-    final year = jsonEncode(academicYearStart);
-    final term = jsonEncode(termCode);
-    return '''
-      (async function () {
-        if (location.hostname !== 'jwxt.vpn.bitc.edu.cn') {
-          throw new Error('Not on the timetable host');
-        }
-        const body = new URLSearchParams({
-          xnm: $year,
-          xqm: $term,
-          kzlx: 'ck',
-          xsdm: ''
-        });
-        const response = await fetch('/kbcx/xskbcx_cxXsgrkb.html', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-          },
-          body: body.toString()
-        });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const rawPayload = await response.json();
-        const allowedKeys = [
-          'jxb_id', 'kch', 'kcmc', 'xm', 'xqj', 'jcs', 'jcor', 'zcd',
-          'xqmc', 'cdmc', 'jxbmc', 'khfsmc', 'xf', 'jxbsftkbj'
-        ];
-        const courses = Array.isArray(rawPayload.kbList)
-          ? rawPayload.kbList.map(function (item) {
-              const course = {};
-              allowedKeys.forEach(function (key) {
-                if (Object.prototype.hasOwnProperty.call(item, key)) {
-                  course[key] = item[key];
-                }
-              });
-              return course;
-            })
-          : [];
-        const minimizedPayload = JSON.stringify({
-          kbList: courses,
-          sjkList: Array.isArray(rawPayload.sjkList)
-            ? rawPayload.sjkList.map(function () { return {}; })
-            : []
-        });
-        SchedulrBridge.postMessage(JSON.stringify({
-          payload: minimizedPayload
-        }));
-      })().catch(function (error) {
-        SchedulrBridge.postMessage(JSON.stringify({
-          error: String(error && error.message ? error.message : error)
-        }));
-      });
-    ''';
   }
 
   @override
@@ -259,4 +200,82 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
       ),
     );
   }
+}
+
+String buildBitcTimetableBridgeScript({
+  required String academicYearStart,
+  required String termCode,
+}) {
+  final year = jsonEncode(academicYearStart);
+  final term = jsonEncode(termCode);
+  return '''
+    (async function () {
+      if (location.hostname !== 'jwxt.vpn.bitc.edu.cn') {
+        throw new Error('Not on the timetable host');
+      }
+      const body = new URLSearchParams({
+        xnm: $year,
+        xqm: $term,
+        kzlx: 'ck',
+        xsdm: ''
+      });
+      const response = await fetch('/kbcx/xskbcx_cxXsgrkb.html', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
+        },
+        body: body.toString()
+      });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const rawPayload = await response.json();
+      const courseKeys = [
+        'jxb_id', 'kch', 'kcmc', 'xm', 'xqj', 'jcs', 'jcor', 'zcd',
+        'xqmc', 'cdmc'
+      ];
+      const calendarKeys = ['rq', 'xqj', 'zc'];
+      const courses = Array.isArray(rawPayload.kbList)
+        ? rawPayload.kbList.map(function (item) {
+            const course = {};
+            courseKeys.forEach(function (key) {
+              if (Object.prototype.hasOwnProperty.call(item, key)) {
+                course[key] = item[key];
+              }
+            });
+            return course;
+          })
+        : [];
+      const calendarAnchors = Array.isArray(rawPayload.rqazcList)
+        ? rawPayload.rqazcList.map(function (item) {
+            const anchor = {};
+            calendarKeys.forEach(function (key) {
+              if (Object.prototype.hasOwnProperty.call(item, key)) {
+                anchor[key] = item[key];
+              }
+            });
+            return anchor;
+          })
+        : [];
+      const minimized = {
+        kbList: courses,
+        sjkList: Array.isArray(rawPayload.sjkList)
+          ? rawPayload.sjkList.map(function () { return {}; })
+          : [],
+        rqazcList: calendarAnchors
+      };
+      const zsType = typeof rawPayload.zs;
+      if (rawPayload.zs === null ||
+          ['string', 'number', 'boolean'].includes(zsType)) {
+        minimized.zs = rawPayload.zs;
+      }
+      const minimizedPayload = JSON.stringify(minimized);
+      SchedulrBridge.postMessage(JSON.stringify({
+        payload: minimizedPayload
+      }));
+    })().catch(function (error) {
+      SchedulrBridge.postMessage(JSON.stringify({
+        error: String(error && error.message ? error.message : error)
+      }));
+    });
+  ''';
 }

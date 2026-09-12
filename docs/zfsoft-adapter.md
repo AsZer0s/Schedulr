@@ -60,7 +60,8 @@ integrations/zfsoft/
 - 个人课表数据由 `POST /kbcx/xskbcx_cxXsgrkb.html` 返回 JSON。
 - 请求参数为 `xnm`、正方学期代码 `xqm`、`kzlx=ck` 和空 `xsdm`。
 - App 使用域名受限的 WebView 建立校方会话，密码不进入 Flutter 层。
-- WebView 在发送课表给 Flutter 前执行字段白名单，只保留课程解析必需信息。
+- WebView 在发送课表给 Flutter 前执行字段白名单，只保留课程解析必需信息，以及 `rqazcList` 中的 `rq`、`xqj`、`zc` 和 primitive `zs`。
+- BITC 返回可验证的日期/星期/教学周锚点时，导入可自动定位第一教学周周一；锚点缺失、星期不符或推导冲突时不会猜测或覆盖本地开学日期，并提示用户在学期设置中手动确认。
 
 该适配只覆盖 BITC 当前部署，不应复用为“通用正方 V9”。Android/iOS 真机认证与 Cookie 生命周期仍需最终验收。
 

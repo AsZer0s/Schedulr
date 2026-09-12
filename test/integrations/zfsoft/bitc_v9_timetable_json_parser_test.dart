@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:schedulr/features/import_timetable/domain/import_timetable.dart';
 import 'package:schedulr/integrations/zfsoft/zfsoft.dart';
 
 void main() {
@@ -11,6 +13,9 @@ void main() {
 
     expect(result.courses, hasLength(3));
     expect(result.unscheduledCourseCount, 1);
+    expect(result.calendar?.startDate, DateTime(2026, 9, 7));
+    expect(result.calendar?.teachingWeeks, isNull);
+    expect(result.calendarIssues, isEmpty);
 
     final first = result.courses[0];
     final second = result.courses[1];
@@ -28,6 +33,111 @@ void main() {
     expect(fallback.teacher, isNull);
     expect(fallback.location, isNull);
     expect(fallback.weeks, {1, 2, 3, 6, 10, 12});
+  });
+
+  test('row.zc 支持数字和字符串且多个锚点推导一致', () {
+    final result = parser.parseResult(
+      _responseWithCalendar(
+        rqazcList: [
+          {'rq': '2026-09-21', 'xqj': '1', 'zc': '3'},
+          {'rq': '2026-09-27', 'xqj': 7, 'zc': 3},
+        ],
+        extra: {'qsxqj': 6},
+      ),
+    );
+
+    expect(result.calendar?.startDate, DateTime(2026, 9, 7));
+    expect(result.calendarIssues, isEmpty);
+  });
+
+  test('缺 row.zc 时使用 top-level zs 数字或字符串', () {
+    for (final zs in <Object>[3, '3']) {
+      final result = parser.parseResult(
+        _responseWithCalendar(
+          rqazcList: [
+            {'rq': '2026-09-22', 'xqj': 2},
+          ],
+          extra: {'zs': zs, 'qsxqj': 7},
+        ),
+      );
+
+      expect(result.calendar?.startDate, DateTime(2026, 9, 7));
+      expect(result.calendarIssues, isEmpty);
+    }
+  });
+
+  test('日期与星期不一致时 warning 且不返回 calendar', () {
+    final result = parser.parseResult(
+      _responseWithCalendar(
+        rqazcList: [
+          {'rq': '2026-09-21', 'xqj': 2, 'zc': 3},
+        ],
+      ),
+    );
+
+    expect(result.calendar, isNull);
+    expect(
+      result.calendarIssues.map((issue) => issue.message),
+      contains(contains('星期')),
+    );
+  });
+
+  test('多个有效锚点推导冲突时 warning 且不返回 calendar', () {
+    final result = parser.parseResult(
+      _responseWithCalendar(
+        rqazcList: [
+          {'rq': '2026-09-21', 'xqj': 1, 'zc': 3},
+          {'rq': '2026-09-28', 'xqj': 1, 'zc': 3},
+        ],
+      ),
+    );
+
+    expect(result.calendar, isNull);
+    expect(
+      result.calendarIssues.map((issue) => issue.message),
+      contains(contains('冲突')),
+    );
+  });
+
+  test('缺少周次时 warning 且不把 qsxqj 当作当前周', () {
+    final result = parser.parseResult(
+      _responseWithCalendar(
+        rqazcList: [
+          {'rq': '2026-09-21', 'xqj': 1},
+        ],
+        extra: {'qsxqj': 3},
+      ),
+    );
+
+    expect(result.calendar, isNull);
+    expect(
+      result.calendarIssues.map((issue) => issue.message),
+      contains(contains('缺少教学周次')),
+    );
+  });
+
+  test('无 rqazcList 时课程照常解析并返回 UI-safe warning', () {
+    final result = parser.parseResult(_responseWithCalendar());
+
+    expect(result.courses, hasLength(1));
+    expect(result.calendar, isNull);
+    expect(result.calendarIssues, isNotEmpty);
+    expect(
+      result.calendarIssues,
+      everyElement(
+        isA<ImportIssue>()
+            .having(
+              (issue) => issue.severity,
+              'severity',
+              ImportIssueSeverity.warning,
+            )
+            .having(
+              (issue) => issue.code,
+              'code',
+              ImportIssueCode.invalidSourceData,
+            ),
+      ),
+    );
   });
 
   test('识别 Web 会话失效的 HTML 登录页', () {
@@ -85,6 +195,31 @@ void main() {
       ),
     );
   });
+}
+
+ZfTimetableResponseDto _responseWithCalendar({
+  List<Map<String, Object?>>? rqazcList,
+  Map<String, Object?> extra = const {},
+}) {
+  final payload = <String, Object?>{
+    'kbList': [
+      {
+        'jxb_id': 'calendar-test-course',
+        'kch': 'DEMO-CALENDAR',
+        'kcmc': '校历测试课程（虚构）',
+        'xqj': 1,
+        'jcs': '1-2',
+        'zcd': '1-2周',
+      },
+    ],
+    'sjkList': <Object?>[],
+    ...extra,
+  };
+  if (rqazcList != null) payload['rqazcList'] = rqazcList;
+  return ZfTimetableResponseDto(
+    body: jsonEncode(payload),
+    contentType: 'application/json',
+  );
 }
 
 ZfTimetableResponseDto _fixtureResponse() {

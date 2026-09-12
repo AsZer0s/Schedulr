@@ -14,15 +14,18 @@ class TimetableImportCoordinator {
     required SemesterTimetable currentTimetable,
     required ImportCommitRequest request,
     ImportTermRequest? importedTerm,
+    ImportedSemesterCalendar? calendar,
   }) async {
-    final semester = importedTerm == null
-        ? currentTimetable.semester
-        : currentTimetable.semester.copyWith(
-            academicYear: importedTerm.academicYear,
-            term: '${importedTerm.term}',
-            name:
-                '${importedTerm.academicYear} 第${_termName(importedTerm.term)}学期',
-          );
+    final currentSemester = currentTimetable.semester;
+    final semester = currentSemester.copyWith(
+      academicYear: importedTerm?.academicYear,
+      term: importedTerm == null ? null : '${importedTerm.term}',
+      name: importedTerm == null
+          ? null
+          : '${importedTerm.academicYear} 第${_termName(importedTerm.term)}学期',
+      startDate: calendar?.startDate,
+      teachingWeeks: calendar?.teachingWeeks,
+    );
     final courses = _toCourses(
       semesterId: semester.id,
       entries: request.entriesToAdd,

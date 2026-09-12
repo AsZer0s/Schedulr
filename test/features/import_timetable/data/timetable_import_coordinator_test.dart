@@ -51,7 +51,39 @@ void main() {
     expect(stored.periodDefinitions, current.periodDefinitions);
   });
 
-  test('commit updates semester metadata from imported term', () async {
+  test('commit updates semester metadata and verified calendar', () async {
+    await coordinator.commit(
+      currentTimetable: current,
+      request: ImportCommitRequest(preview: _preview(ImportStrategy.merge)),
+      importedTerm: const ImportTermRequest(academicYear: '2027-2028', term: 2),
+      calendar: ImportedSemesterCalendar(
+        startDate: DateTime(2027, 9, 6),
+        teachingWeeks: 18,
+      ),
+    );
+
+    final stored = await repository.getSemesterTimetable(current.semester.id);
+    expect(stored!.semester.academicYear, '2027-2028');
+    expect(stored.semester.term, '2');
+    expect(stored.semester.name, '2027-2028 第二学期');
+    expect(stored.semester.startDate, DateTime(2027, 9, 6));
+    expect(stored.semester.teachingWeeks, 18);
+  });
+
+  test('calendar without teachingWeeks updates only startDate', () async {
+    await coordinator.commit(
+      currentTimetable: current,
+      request: ImportCommitRequest(preview: _preview(ImportStrategy.merge)),
+      calendar: ImportedSemesterCalendar(startDate: DateTime(2026, 9, 14)),
+    );
+
+    final stored = await repository.getSemesterTimetable(current.semester.id);
+    expect(stored!.semester.startDate, DateTime(2026, 9, 14));
+    expect(stored.semester.teachingWeeks, current.semester.teachingWeeks);
+    expect(stored.semester.academicYear, current.semester.academicYear);
+  });
+
+  test('commit without calendar preserves local calendar', () async {
     await coordinator.commit(
       currentTimetable: current,
       request: ImportCommitRequest(preview: _preview(ImportStrategy.merge)),
@@ -59,10 +91,8 @@ void main() {
     );
 
     final stored = await repository.getSemesterTimetable(current.semester.id);
-    expect(stored!.semester.academicYear, '2027-2028');
-    expect(stored.semester.term, '2');
-    expect(stored.semester.name, '2027-2028 第二学期');
-    expect(stored.semester.startDate, current.semester.startDate);
+    expect(stored!.semester.startDate, current.semester.startDate);
+    expect(stored.semester.teachingWeeks, current.semester.teachingWeeks);
   });
 }
 

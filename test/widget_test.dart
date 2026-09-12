@@ -24,6 +24,7 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          currentDateProvider.overrideWithValue(DateTime(2026, 9, 12)),
           currentTimetableProvider.overrideWith(
             (ref) => Stream.value(timetable),
           ),

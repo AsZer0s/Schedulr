@@ -81,12 +81,31 @@ final class ImportTermRequest {
   final int term;
 }
 
+/// Verified semester calendar metadata supplied by an importer.
+final class ImportedSemesterCalendar {
+  ImportedSemesterCalendar({required DateTime startDate, this.teachingWeeks})
+    : startDate = DateTime(startDate.year, startDate.month, startDate.day) {
+    final weeks = teachingWeeks;
+    if (weeks != null && weeks < 1) {
+      throw ArgumentError.value(
+        weeks,
+        'teachingWeeks',
+        'Must be positive when provided.',
+      );
+    }
+  }
+
+  final DateTime startDate;
+  final int? teachingWeeks;
+}
+
 final class ImportedTimetable {
   ImportedTimetable({
     required this.sourceName,
     required this.term,
     required Iterable<ImportedTimetableEntry> entries,
     Iterable<ImportIssue> issues = const [],
+    this.calendar,
   }) : entries = List.unmodifiable(entries),
        issues = List.unmodifiable(issues);
 
@@ -94,6 +113,7 @@ final class ImportedTimetable {
   final ImportTermRequest term;
   final List<ImportedTimetableEntry> entries;
   final List<ImportIssue> issues;
+  final ImportedSemesterCalendar? calendar;
 }
 
 enum TimetableImportFailureKind {

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../../core/time/teaching_calendar.dart';
 import '../domain/timetable_models.dart';
 
 typedef CourseSessionTapCallback = void Function(
@@ -15,6 +16,7 @@ class WeeklyTimetableView extends StatefulWidget {
     required this.teachingWeek,
     this.showWeekend = false,
     this.onCourseTap,
+    this.today,
     this.height = 600,
     this.dayWidth = 120,
     this.periodRowHeight = 68,
@@ -25,11 +27,28 @@ class WeeklyTimetableView extends StatefulWidget {
        assert(periodRowHeight > 0),
        assert(periodAxisWidth > 0);
 
+  static const Key headerHorizontalScrollKey = ValueKey<String>(
+    'weekly-timetable-header-horizontal-scroll',
+  );
+  static const Key gridHorizontalScrollKey = ValueKey<String>(
+    'weekly-timetable-grid-horizontal-scroll',
+  );
+  static const Key todayColumnKey = ValueKey<String>(
+    'weekly-timetable-today-column',
+  );
+
+  static Key weekdayHeaderKey(int weekday) =>
+      ValueKey<String>('weekly-timetable-weekday-header-$weekday');
+
   final SemesterTimetable timetable;
   final int teachingWeek;
   final bool showWeekend;
   final CourseSessionTapCallback? onCourseTap;
+  final DateTime? today;
   final double height;
+
+  /// Preferred day width. Five-day mode always fits all workdays; in seven-day
+  /// mode a compact minimum derived from this value is used before scrolling.
   final double dayWidth;
   final double periodRowHeight;
   final double periodAxisWidth;
@@ -39,7 +58,9 @@ class WeeklyTimetableView extends StatefulWidget {
 }
 
 class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
-  static const double _headerHeight = 52;
+  static const double _headerHeight = 58;
+  static const double _minimumAxisWidth = 42;
+  static const double _maximumCompactDayWidth = 72;
 
   final ScrollController _headerHorizontalController = ScrollController();
   final ScrollController _gridHorizontalController = ScrollController();
@@ -108,126 +129,209 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
       periods: periods,
     );
     final placements = _placeEntries(entries);
-    final gridWidth = weekdays * widget.dayWidth;
-    final gridHeight = periods.length * widget.periodRowHeight;
-
-    if (entries.isEmpty) {
-      return SizedBox(
-        height: widget.height,
-        child: const TimetableEmptyState(),
-      );
-    }
+    final dates = [
+      for (var weekday = DateTime.monday; weekday <= weekdays; weekday++)
+        dateForTeachingWeekday(
+          widget.timetable.semester,
+          widget.teachingWeek,
+          weekday,
+        ),
+    ];
+    final currentDay = dateOnly(widget.today ?? DateTime.now());
+    final todayIndex = dates.indexWhere(
+      (date) => DateUtils.isSameDay(date, currentDay),
+    );
 
     return SizedBox(
       height: widget.height,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          color: Theme.of(context).colorScheme.surface,
-          border: Border.all(color: Theme.of(context).dividerColor),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(11),
-          child: Row(
-            children: [
-              SizedBox(
-                width: widget.periodAxisWidth,
-                child: Column(
-                  children: [
-                    const SizedBox(height: _headerHeight),
-                    Divider(height: 1, color: Theme.of(context).dividerColor),
-                    Expanded(
-                      child: SingleChildScrollView(
-                        controller: _axisVerticalController,
-                        physics: const ClampingScrollPhysics(),
-                        child: _PeriodAxis(
-                          periods: periods,
-                          width: widget.periodAxisWidth,
-                          rowHeight: widget.periodRowHeight,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final availableWidth = constraints.hasBoundedWidth
+              ? constraints.maxWidth
+              : MediaQuery.sizeOf(context).width;
+          final axisWidth = math.min(
+            widget.periodAxisWidth,
+            math.max(_minimumAxisWidth, availableWidth * 0.15),
+          );
+          final gridViewportWidth = math.max(0, availableWidth - axisWidth - 1);
+          final minimumSevenDayWidth = math.min(
+            widget.dayWidth,
+            _maximumCompactDayWidth,
+          );
+          final effectiveDayWidth = widget.showWeekend
+              ? math.max(gridViewportWidth / weekdays, minimumSevenDayWidth)
+              : gridViewportWidth / weekdays;
+          final gridWidth = effectiveDayWidth * weekdays;
+          final gridHeight = periods.length * widget.periodRowHeight;
+          final canScrollHorizontally = gridWidth - gridViewportWidth > 0.01;
+          final horizontalPhysics = canScrollHorizontally
+              ? const ClampingScrollPhysics()
+              : const NeverScrollableScrollPhysics();
+
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              border: Border.all(color: Theme.of(context).dividerColor),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(11),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: axisWidth,
+                    child: Column(
+                      children: [
+                        const SizedBox(height: _headerHeight),
+                        Divider(
+                          height: 1,
+                          color: Theme.of(context).dividerColor,
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              VerticalDivider(
-                width: 1,
-                thickness: 1,
-                color: Theme.of(context).dividerColor,
-              ),
-              Expanded(
-                child: Column(
-                  children: [
-                    SizedBox(
-                      height: _headerHeight,
-                      child: SingleChildScrollView(
-                        controller: _headerHorizontalController,
-                        scrollDirection: Axis.horizontal,
-                        physics: const ClampingScrollPhysics(),
-                        child: _WeekdayHeader(
-                          weekdays: weekdays,
-                          dayWidth: widget.dayWidth,
-                        ),
-                      ),
-                    ),
-                    Divider(height: 1, color: Theme.of(context).dividerColor),
-                    Expanded(
-                      child: Scrollbar(
-                        controller: _gridHorizontalController,
-                        thumbVisibility: true,
-                        child: SingleChildScrollView(
-                          controller: _gridHorizontalController,
-                          scrollDirection: Axis.horizontal,
-                          physics: const ClampingScrollPhysics(),
-                          child: SizedBox(
-                            width: gridWidth,
-                            child: Scrollbar(
-                              controller: _gridVerticalController,
-                              thumbVisibility: true,
-                              child: SingleChildScrollView(
-                                controller: _gridVerticalController,
-                                physics: const ClampingScrollPhysics(),
-                                child: SizedBox(
-                                  width: gridWidth,
-                                  height: gridHeight,
-                                  child: Stack(
-                                    clipBehavior: Clip.hardEdge,
-                                    children: [
-                                      Positioned.fill(
-                                        child: CustomPaint(
-                                          painter: _TimetableGridPainter(
-                                            weekdays: weekdays,
-                                            periods: periods.length,
-                                            dayWidth: widget.dayWidth,
-                                            rowHeight: widget.periodRowHeight,
-                                            lineColor: Theme.of(context)
-                                                .dividerColor,
-                                          ),
-                                        ),
-                                      ),
-                                      for (final placement in placements)
-                                        _CourseCardPositioned(
-                                          placement: placement,
-                                          teachingWeek: widget.teachingWeek,
-                                          dayWidth: widget.dayWidth,
-                                          rowHeight: widget.periodRowHeight,
-                                          onTap: widget.onCourseTap,
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              ),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            controller: _axisVerticalController,
+                            physics: const ClampingScrollPhysics(),
+                            child: _PeriodAxis(
+                              periods: periods,
+                              width: axisWidth,
+                              rowHeight: widget.periodRowHeight,
                             ),
                           ),
                         ),
-                      ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  VerticalDivider(
+                    width: 1,
+                    thickness: 1,
+                    color: Theme.of(context).dividerColor,
+                  ),
+                  Expanded(
+                    child: Column(
+                      children: [
+                        SizedBox(
+                          height: _headerHeight,
+                          child: SingleChildScrollView(
+                            key: WeeklyTimetableView.headerHorizontalScrollKey,
+                            controller: _headerHorizontalController,
+                            scrollDirection: Axis.horizontal,
+                            physics: horizontalPhysics,
+                            child: _WeekdayHeader(
+                              dates: dates,
+                              dayWidth: effectiveDayWidth,
+                              todayIndex: todayIndex,
+                            ),
+                          ),
+                        ),
+                        Divider(
+                          height: 1,
+                          color: Theme.of(context).dividerColor,
+                        ),
+                        Expanded(
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: Scrollbar(
+                                  controller: _gridHorizontalController,
+                                  thumbVisibility: canScrollHorizontally,
+                                  child: SingleChildScrollView(
+                                    key: WeeklyTimetableView
+                                        .gridHorizontalScrollKey,
+                                    controller: _gridHorizontalController,
+                                    scrollDirection: Axis.horizontal,
+                                    physics: horizontalPhysics,
+                                    child: SizedBox(
+                                      width: gridWidth,
+                                      child: Scrollbar(
+                                        controller: _gridVerticalController,
+                                        thumbVisibility: true,
+                                        child: SingleChildScrollView(
+                                          controller: _gridVerticalController,
+                                          physics:
+                                              const ClampingScrollPhysics(),
+                                          child: SizedBox(
+                                            width: gridWidth,
+                                            height: gridHeight,
+                                            child: Stack(
+                                              clipBehavior: Clip.hardEdge,
+                                              children: [
+                                                if (todayIndex >= 0)
+                                                  Positioned(
+                                                    key: WeeklyTimetableView
+                                                        .todayColumnKey,
+                                                    left:
+                                                        todayIndex *
+                                                        effectiveDayWidth,
+                                                    top: 0,
+                                                    bottom: 0,
+                                                    width: effectiveDayWidth,
+                                                    child: Semantics(
+                                                      container: true,
+                                                      label: '今天课程列',
+                                                      child: ColoredBox(
+                                                        color: Theme.of(context)
+                                                            .colorScheme
+                                                            .primaryContainer
+                                                            .withValues(
+                                                              alpha: 0.32,
+                                                            ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                Positioned.fill(
+                                                  child: CustomPaint(
+                                                    painter:
+                                                        _TimetableGridPainter(
+                                                          weekdays: weekdays,
+                                                          periods:
+                                                              periods.length,
+                                                          dayWidth:
+                                                              effectiveDayWidth,
+                                                          rowHeight: widget
+                                                              .periodRowHeight,
+                                                          lineColor: Theme.of(
+                                                            context,
+                                                          ).dividerColor,
+                                                        ),
+                                                  ),
+                                                ),
+                                                for (final placement
+                                                    in placements)
+                                                  _CourseCardPositioned(
+                                                    placement: placement,
+                                                    teachingWeek:
+                                                        widget.teachingWeek,
+                                                    dayWidth: effectiveDayWidth,
+                                                    rowHeight:
+                                                        widget.periodRowHeight,
+                                                    onTap: widget.onCourseTap,
+                                                  ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (entries.isEmpty)
+                                const Positioned.fill(
+                                  child: IgnorePointer(
+                                    child: TimetableEmptyState(),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -441,24 +545,75 @@ List<_Placement> _placeEntries(List<_VisibleEntry> entries) {
 }
 
 class _WeekdayHeader extends StatelessWidget {
-  const _WeekdayHeader({required this.weekdays, required this.dayWidth});
+  const _WeekdayHeader({
+    required this.dates,
+    required this.dayWidth,
+    required this.todayIndex,
+  });
 
   static const labels = <String>['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
+  static const shortLabels = <String>['一', '二', '三', '四', '五', '六', '日'];
 
-  final int weekdays;
+  final List<DateTime> dates;
   final double dayWidth;
+  final int todayIndex;
 
   @override
   Widget build(BuildContext context) {
+    final useShortLabels = dayWidth < 64;
+    final colorScheme = Theme.of(context).colorScheme;
     return Row(
       children: [
-        for (var index = 0; index < weekdays; index++)
-          SizedBox(
-            width: dayWidth,
-            child: Center(
-              child: Text(
-                labels[index],
-                style: Theme.of(context).textTheme.labelLarge,
+        for (var index = 0; index < dates.length; index++)
+          Semantics(
+            key: WeeklyTimetableView.weekdayHeaderKey(index + 1),
+            container: true,
+            header: true,
+            selected: index == todayIndex,
+            label:
+                '${index == todayIndex ? '今天，' : ''}${labels[index]}，'
+                '${dates[index].month}月${dates[index].day}日',
+            child: ExcludeSemantics(
+              child: Container(
+                width: dayWidth,
+                height: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
+                decoration: BoxDecoration(
+                  color: index == todayIndex
+                      ? colorScheme.primaryContainer.withValues(alpha: 0.72)
+                      : null,
+                  border: Border(
+                    right: BorderSide(color: Theme.of(context).dividerColor),
+                  ),
+                ),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        useShortLabels ? shortLabels[index] : labels[index],
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: index == todayIndex
+                              ? colorScheme.onPrimaryContainer
+                              : null,
+                          fontWeight: index == todayIndex
+                              ? FontWeight.w700
+                              : null,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '${dates[index].month}/${dates[index].day}',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: index == todayIndex
+                              ? colorScheme.onPrimaryContainer
+                              : colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -489,16 +644,19 @@ class _PeriodAxis extends StatelessWidget {
               width: width,
               height: rowHeight,
               alignment: Alignment.center,
-              padding: const EdgeInsets.symmetric(horizontal: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
               decoration: BoxDecoration(
                 border: Border(
                   bottom: BorderSide(color: Theme.of(context).dividerColor),
                 ),
               ),
-              child: Text(
-                period.label,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.labelSmall,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  width < 56 ? '${period.period}节' : period.label,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
               ),
             ),
         ],
@@ -524,12 +682,12 @@ class _CourseCardPositioned extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const gap = 2.0;
     final entry = placement.entry;
     final session = entry.session;
     final courseWithSessions = entry.courseWithSessions;
     final course = courseWithSessions.course;
     final columnWidth = dayWidth / placement.columnCount;
+    final gap = columnWidth < 32 ? 0.5 : 2.0;
     final color = Color(course.colorValue);
     final foreground =
         ThemeData.estimateBrightnessForColor(color) == Brightness.dark
@@ -551,46 +709,69 @@ class _CourseCardPositioned extends StatelessWidget {
           placement.column * columnWidth +
           gap,
       top: entry.startRow * rowHeight + gap,
-      width: math.max(0, columnWidth - gap * 2),
+      width: math.max(1, columnWidth - gap * 2),
       height: math.max(
-        0,
+        1,
         (entry.endRow - entry.startRow + 1) * rowHeight - gap * 2,
       ),
       child: Semantics(
         container: true,
+        excludeSemantics: true,
         button: onTap != null,
         label: semanticsLabel,
         hint: onTap == null ? null : '点击查看课程',
         child: Material(
           color: color,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(columnWidth < 36 ? 4 : 8),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap == null
                 ? null
                 : () => onTap!(courseWithSessions, session),
-            child: Padding(
-              padding: const EdgeInsets.all(7),
-              child: DefaultTextStyle(
-                style: Theme.of(context).textTheme.labelMedium!
-                    .copyWith(color: foreground),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      course.name,
-                      style: TextStyle(
-                        color: foreground,
-                        fontWeight: FontWeight.w700,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final padding = constraints.maxWidth < 36
+                    ? 2.0
+                    : constraints.maxWidth < 60
+                    ? 4.0
+                    : 7.0;
+                final showLocation =
+                    constraints.maxWidth >= 70 && constraints.maxHeight >= 52;
+                return Padding(
+                  padding: EdgeInsets.all(padding),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.topLeft,
+                          child: Text(
+                            course.name,
+                            maxLines: showLocation ? 2 : 4,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelMedium
+                                ?.copyWith(
+                                  color: foreground,
+                                  fontWeight: FontWeight.w700,
+                                  height: 1.05,
+                                ),
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(locationLabel),
-                  ],
-                ),
-              ),
+                      if (showLocation) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          locationLabel,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.labelSmall
+                              ?.copyWith(color: foreground, height: 1.05),
+                        ),
+                      ],
+                    ],
+                  ),
+                );
+              },
             ),
           ),
         ),

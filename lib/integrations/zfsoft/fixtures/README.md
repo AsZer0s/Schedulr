@@ -1,6 +1,6 @@
 # 正方解析 Fixture 脱敏约定
 
-本目录仅包含完全虚构、不可回溯到真实账号的脱敏响应。`bitc_v9_timetable_sanitized.json` 保留了 BITC 正方 V9 已验证的 `kbList` / `sjkList` 字段结构、同教学班多安排、单双周与不连续周次，仅用于自动化测试；其中学生、教师、教室、课程、代码和内部 ID 均为虚构值。
+本目录仅包含完全虚构、不可回溯到真实账号的脱敏响应。`bitc_v9_timetable_sanitized.json` 保留了 BITC 正方 V9 已验证的 `kbList` / `sjkList` 字段结构、同教学班多安排、单双周、不连续周次，以及虚构的 `rqazcList` / `zs` 校历锚点，仅用于自动化测试；其中学生、教师、教室、课程、代码、内部 ID 和日期组合均为虚构值。
 
 `MockZfTimetableImporter` 仍只读取代码内的虚构 JSON 演示数据，不联网。BITC 适配器使用调用方持有的已认证 Web 会话获取 payload，不接收或保存用户名、密码、Cookie、Token。
 

@@ -74,11 +74,46 @@ void main() {
     expect(fetchedTerm?.term, 12);
     expect(result.term.academicYear, '2026-2027');
     expect(result.entries, hasLength(3));
+    expect(result.calendar?.startDate, DateTime(2026, 9, 7));
+    expect(result.calendar?.teachingWeeks, isNull);
     expect(result.issues, hasLength(1));
     expect(result.issues.single.code, ImportIssueCode.unsupportedSourceData);
     expect(result.issues.single.severity, ImportIssueSeverity.warning);
     expect(result.issues.single.message, contains('1'));
     expect(result.issues.single.message, isNot(contains('课程名')));
+  });
+
+  test('合并 parser 校历 warning 和无固定时间 warning', () async {
+    final importer = BitcZfTimetableImporter(
+      fetchPayload: (term) async => '''
+        {
+          "kbList": [{
+            "jxb_id": "demo-warning",
+            "kch": "DEMO-WARNING",
+            "kcmc": "告警测试课程（虚构）",
+            "xqj": 1,
+            "jcs": "1-2",
+            "zcd": "1周"
+          }],
+          "sjkList": [{}],
+          "rqazcList": [{
+            "rq": "2026-09-21",
+            "xqj": 1
+          }]
+        }
+      ''',
+    );
+    await importer.authenticate(const BrowserSessionAuthRequest());
+
+    final result = await importer.fetchTimetable(
+      const ImportTermRequest(academicYear: '2026-2027', term: 1),
+    );
+
+    expect(result.calendar, isNull);
+    expect(
+      result.issues.map((issue) => issue.message),
+      containsAll([contains('教学周次'), contains('1 门')]),
+    );
   });
 
   test('未 Web auth 时拒绝 fetch 且不调用 closure', () async {

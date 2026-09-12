@@ -59,7 +59,7 @@ final class BitcZfTimetableImporter implements TimetableImporter {
           contentType: 'application/json; charset=utf-8',
         ),
       );
-      final issues = <ImportIssue>[];
+      final issues = <ImportIssue>[...result.calendarIssues];
       if (result.unscheduledCourseCount > 0) {
         issues.add(
           ImportIssue(
@@ -74,6 +74,7 @@ final class BitcZfTimetableImporter implements TimetableImporter {
         term: term,
         entries: result.courses.map(_toImportedEntry),
         issues: issues,
+        calendar: result.calendar,
       );
     } on TimetableImportException {
       rethrow;
