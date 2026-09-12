@@ -70,6 +70,35 @@ lib/
 └── integrations/zfsoft/         # 正方学校配置、认证和解析适配器
 ```
 
+## Tag 自动构建
+
+GitHub Actions 只在推送 Git tag 时运行，普通分支 push 和 pull request 不会触发发布构建：
+
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+构建完成后，对应 GitHub Release 会包含：
+
+- `Schedulr-<tag>-android.apk`
+- `Schedulr-<tag>-ios-unsigned.ipa`
+
+IPA 由 macOS Runner 使用 `--no-codesign` 构建，需要使用有效的 Apple 开发者证书重新签名后安装。
+
+Android 默认使用 GitHub Runner 的 debug key 签署 Release APK，便于开源 fork 直接构建。若需使用正式签名，请配置以下 Actions Secrets：
+
+- `ANDROID_KEYSTORE_BASE64`：JKS/Keystore 文件的 Base64 内容
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEY_PASSWORD`
+
+所有四个值同时存在时，工作流自动改用正式 keystore；密钥文件不会写入仓库。
+
+## 开源协议
+
+本项目使用 [MIT License](LICENSE) 开源。学校名称、教务系统及相关商标归各自权利人所有；本项目与正方软件或北京信息职业技术学院不存在官方隶属或背书关系。
+
 ## 正方支持范围
 
 正方教务系统在不同学校可能使用不同版本、CAS/统一认证、验证码、参数、编码和课表页面。项目不会宣称自动支持全部部署。
