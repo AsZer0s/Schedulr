@@ -85,8 +85,12 @@ void main() {
         ),
       ]);
 
-      await _pumpView(tester, timetable: timetable, teachingWeek: 1);
-
+      await _pumpView(
+        tester,
+        timetable: timetable,
+        teachingWeek: 1,
+        showWeekend: false,
+      );
       expect(find.byType(TimetableEmptyState), findsOneWidget);
       expect(find.text('工作日暂无课程'), findsOneWidget);
       expect(find.textContaining('开启“显示周末”后可查看'), findsOneWidget);
@@ -348,17 +352,17 @@ void main() {
     });
 
     for (final width in <double>[320, 360, 390, 450]) {
-      testWidgets('$width 宽工作日完整显示且无水平滚动范围', (tester) async {
+      testWidgets('$width 宽七天完整显示且无水平滚动范围', (tester) async {
         final timetable = _timetable([
           _course(
-            id: 'friday',
-            name: '周五课程',
+            id: 'sunday',
+            name: '周日课程',
             sessions: [
               _session(
-                id: 'friday-session',
-                courseId: 'friday',
+                id: 'sunday-session',
+                courseId: 'sunday',
                 weeks: {1},
-                weekday: DateTime.friday,
+                weekday: DateTime.sunday,
               ),
             ],
           ),
@@ -374,7 +378,7 @@ void main() {
         final viewRect = tester.getRect(find.byType(WeeklyTimetableView));
         for (
           var weekday = DateTime.monday;
-          weekday <= DateTime.friday;
+          weekday <= DateTime.sunday;
           weekday++
         ) {
           final headerRect = tester.getRect(
@@ -383,52 +387,15 @@ void main() {
           expect(headerRect.left, greaterThanOrEqualTo(viewRect.left));
           expect(headerRect.right, lessThanOrEqualTo(viewRect.right + 0.01));
         }
-        final fridayCard = tester.getRect(
-          find.byKey(const ValueKey<String>('course-session-friday-session')),
+        final sundayCard = tester.getRect(
+          find.byKey(const ValueKey<String>('course-session-sunday-session')),
         );
-        expect(fridayCard.left, greaterThanOrEqualTo(viewRect.left));
-        expect(fridayCard.right, lessThanOrEqualTo(viewRect.right + 0.01));
+        expect(sundayCard.left, greaterThanOrEqualTo(viewRect.left));
+        expect(sundayCard.right, lessThanOrEqualTo(viewRect.right + 0.01));
         expect(_horizontalPosition(tester).maxScrollExtent, closeTo(0, 0.01));
         expect(tester.takeException(), isNull);
       });
     }
-
-    testWidgets('7 天窄屏使用最小列宽并可横滑', (tester) async {
-      final timetable = _timetable([
-        _course(
-          id: 'sunday',
-          name: '周日课程',
-          sessions: [
-            _session(
-              id: 'sunday-session',
-              courseId: 'sunday',
-              weeks: {1},
-              weekday: DateTime.sunday,
-            ),
-          ],
-        ),
-      ]);
-
-      await _pumpView(
-        tester,
-        timetable: timetable,
-        teachingWeek: 1,
-        showWeekend: true,
-        width: 320,
-      );
-
-      final position = _horizontalPosition(tester);
-      expect(position.maxScrollExtent, greaterThan(0));
-      final before = position.pixels;
-      await tester.drag(
-        find.byKey(WeeklyTimetableView.gridHorizontalScrollKey),
-        const Offset(-220, 0),
-      );
-      await tester.pumpAndSettle();
-      expect(position.pixels, greaterThan(before));
-      expect(find.text('周日课程'), findsOneWidget);
-      expect(tester.takeException(), isNull);
-    });
 
     testWidgets('当前教学周表头和 today 列按统一 metrics 覆盖', (tester) async {
       final timetable = _timetable([
@@ -494,7 +461,7 @@ void main() {
       expect(find.byKey(WeeklyTimetableView.todayColumnKey), findsNothing);
       for (
         var weekday = DateTime.monday;
-        weekday <= DateTime.friday;
+        weekday <= DateTime.sunday;
         weekday++
       ) {
         final semantics = tester.getSemantics(
@@ -726,7 +693,7 @@ Future<void> _pumpView(
   WidgetTester tester, {
   required SemesterTimetable timetable,
   required int teachingWeek,
-  bool showWeekend = false,
+  bool showWeekend = true,
   CourseSessionTapCallback? onCourseTap,
   DateTime? today,
   double width = 800,

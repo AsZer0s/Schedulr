@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import 'package:schedulr/features/timetable/data/providers.dart';
 import 'package:schedulr/features/timetable/domain/timetable_models.dart';
 import 'package:schedulr/features/timetable/presentation/pages/timetable_home_page.dart';
+import 'package:schedulr/features/timetable/presentation/weekly_timetable_view.dart';
 
 void main() {
   group('TimetableHomePage', () {
@@ -20,6 +21,50 @@ void main() {
 
       expect(find.text('第 2 周 · 今天'), findsOneWidget);
       expect(find.textContaining('9/14 - 9/20'), findsOneWidget);
+    });
+
+    testWidgets('首页固定显示周一至周日且没有周末切换按钮', (tester) async {
+      final course = Course(
+        id: 'weekend-course',
+        semesterId: 'semester',
+        name: '周六课程',
+      );
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 16),
+        initialTimetable: _timetable(
+          courses: [
+            CourseWithSessions(
+              course: course,
+              sessions: [
+                CourseSession(
+                  id: 'weekend-session',
+                  courseId: course.id,
+                  weekday: DateTime.saturday,
+                  startPeriod: 1,
+                  endPeriod: 2,
+                  weeks: const {2},
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+      addTearDown(harness.dispose);
+
+      expect(find.byTooltip('显示周末'), findsNothing);
+      expect(find.byTooltip('隐藏周末'), findsNothing);
+      expect(find.text('周六课程'), findsOneWidget);
+      for (
+        var weekday = DateTime.monday;
+        weekday <= DateTime.sunday;
+        weekday++
+      ) {
+        expect(
+          find.byKey(WeeklyTimetableView.weekdayHeaderKey(weekday)),
+          findsOneWidget,
+        );
+      }
     });
 
     testWidgets('左右切周创建显式选择，点击中间恢复跟随今天', (tester) async {
@@ -240,10 +285,13 @@ class _HomeHarness {
   Future<void> dispose() => _controller.close();
 }
 
-SemesterTimetable _timetable({Semester? semester}) {
+SemesterTimetable _timetable({
+  Semester? semester,
+  List<CourseWithSessions> courses = const [],
+}) {
   return SemesterTimetable(
     semester: semester ?? _semester(),
-    courses: const [],
+    courses: courses,
     periodDefinitions: const [],
   );
 }

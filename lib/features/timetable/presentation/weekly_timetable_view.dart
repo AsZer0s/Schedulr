@@ -14,7 +14,7 @@ class WeeklyTimetableView extends StatefulWidget {
   const WeeklyTimetableView({
     required this.timetable,
     required this.teachingWeek,
-    this.showWeekend = false,
+    this.showWeekend = true,
     this.onCourseTap,
     this.today,
     this.height = 600,
@@ -63,8 +63,8 @@ class WeeklyTimetableView extends StatefulWidget {
   final DateTime? today;
   final double height;
 
-  /// Preferred day width. Five-day mode always fits all workdays; in seven-day
-  /// mode a compact minimum derived from this value is used before scrolling.
+  /// Preferred day width retained for callers that explicitly use five-day
+  /// mode. Seven-day product mode always fits the full week to the viewport.
   final double dayWidth;
 
   /// Preferred maximum row height. Rows shrink to fit when that remains
@@ -79,7 +79,6 @@ class WeeklyTimetableView extends StatefulWidget {
 class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
   static const double _headerHeight = 58;
   static const double _minimumAxisWidth = 42;
-  static const double _maximumCompactDayWidth = 72;
   static const double _groupGap = 10;
   static const double _baseMinimumRowHeight = 48;
 
@@ -241,22 +240,19 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
               ? constraints.maxHeight
               : widget.height;
           final bodyViewportHeight = math.max(
-            0,
+            0.0,
             availableHeight - _headerHeight - 1,
           );
           final axisWidth = math.min(
             widget.periodAxisWidth,
             math.max(_minimumAxisWidth, availableWidth * 0.15),
           );
-          final gridViewportWidth = math.max(0, availableWidth - axisWidth - 1);
-          final minimumSevenDayWidth = math.min(
-            widget.dayWidth,
-            _maximumCompactDayWidth,
+          final gridViewportWidth = math.max(
+            0.0,
+            availableWidth - axisWidth - 1,
           );
-          final effectiveDayWidth = widget.showWeekend
-              ? math.max(gridViewportWidth / weekdays, minimumSevenDayWidth)
-              : gridViewportWidth / weekdays;
-          final gridWidth = effectiveDayWidth * weekdays;
+          final effectiveDayWidth = gridViewportWidth / weekdays;
+          final gridWidth = gridViewportWidth;
           final separatorCount = _separatorCount(periods);
           final textScale = _effectiveTextScale(context);
           final minimumRowHeight = _baseMinimumRowHeight + (textScale - 1) * 16;
@@ -265,7 +261,7 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
             widget.periodRowHeight,
           );
           final availableRowsHeight = math.max(
-            0,
+            0.0,
             bodyViewportHeight - separatorCount * _groupGap,
           );
           final fittingRowHeight = periods.isEmpty

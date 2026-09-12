@@ -18,7 +18,6 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
   int? _selectedWeek;
   _SemesterCalendar? _semesterCalendar;
   _SemesterCalendar? _pendingSemesterCalendar;
-  bool _showWeekend = false;
 
   void _selectWeek(Semester semester, DateTime today, int delta) {
     final current = _effectiveWeek(semester, today, _selectionFor(semester));
@@ -86,15 +85,6 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
       appBar: AppBar(
         title: const Text('课程表'),
         actions: [
-          IconButton(
-            tooltip: _showWeekend ? '隐藏周末' : '显示周末',
-            onPressed: () => setState(() => _showWeekend = !_showWeekend),
-            icon: Icon(
-              _showWeekend
-                  ? Icons.calendar_view_week_rounded
-                  : Icons.workspaces_outline,
-            ),
-          ),
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
@@ -156,7 +146,6 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
                       timetable: value,
                       teachingWeek: week,
                       today: today,
-                      showWeekend: _showWeekend,
                       height: constraints.maxHeight,
                       onCourseTap: _openCourse,
                     ),
