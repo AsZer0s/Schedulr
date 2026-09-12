@@ -1,0 +1,59 @@
+{
+  "kbList": [
+    {
+      "jxb_id": "demo-class-orbit-01",
+      "kch": "DEMO-101",
+      "kcmc": "<span>星云导航导论（虚构）</span>",
+      "xm": "虚构教师甲",
+      "xqj": "1",
+      "jcs": "1-2",
+      "jcor": "1-2",
+      "zcd": "2-4周(双),5-7周(单),8-14周",
+      "xqmc": "虚构北校区",
+      "cdmc": "虚构楼 A-101",
+      "jxbmc": "虚构教学班甲",
+      "khfsmc": "虚构考核",
+      "xf": "2.0",
+      "jxbsftkbj": "0"
+    },
+    {
+      "jxb_id": "demo-class-orbit-01",
+      "kch": "DEMO-101",
+      "kcmc": "星云导航导论（虚构）",
+      "xm": "虚构教师甲",
+      "xqj": "3",
+      "jcs": "5-6",
+      "jcor": "5-6",
+      "zcd": "1-9周(单)",
+      "xqmc": "虚构北校区",
+      "cdmc": "虚构楼 B-202",
+      "jxbmc": "虚构教学班甲",
+      "khfsmc": "虚构考核",
+      "xf": "2.0",
+      "jxbsftkbj": "0"
+    },
+    {
+      "jxb_id": "",
+      "kch": "DEMO-202",
+      "kcmc": "量子园艺实践（虚构）",
+      "xm": "",
+      "xqj": 5,
+      "jcs": "7-8",
+      "jcor": "7-8",
+      "zcd": "1-3周,6周,10-12周(双)",
+      "xqmc": "",
+      "cdmc": "",
+      "jxbmc": "虚构教学班乙",
+      "khfsmc": "虚构考核",
+      "xf": "1.5",
+      "jxbsftkbj": "0"
+    }
+  ],
+  "sjkList": [
+    {}
+  ],
+  "xsxx": {
+    "xm": "虚构学生",
+    "xh": "DEMO-STUDENT"
+  }
+}
