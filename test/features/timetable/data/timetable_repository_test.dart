@@ -8,9 +8,15 @@ void main() {
   late AppDatabase database;
   late TimetableRepository repository;
 
+  var uuidCounter = 0;
+
   setUp(() {
+    uuidCounter = 0;
     database = AppDatabase(NativeDatabase.memory());
-    repository = TimetableRepository(database);
+    repository = TimetableRepository(
+      database,
+      uuidGenerator: () => 'generated-${uuidCounter++}',
+    );
   });
 
   tearDown(() => database.close());
@@ -169,27 +175,277 @@ void main() {
     );
     expect(await repository.getSemesterTimetable(initial.semester.id), initial);
   });
+
+  test('keeps timetable data isolated and allows matching times', () async {
+    final first = _timetable(
+      semesterId: 'semester-a',
+      timetableName: '课表 A',
+      courseId: 'course-a',
+      courseName: '高等数学',
+    );
+    final second = _timetable(
+      semesterId: 'semester-b',
+      timetableName: '课表 B',
+      courseId: 'course-b',
+      courseName: '大学英语',
+      isCurrent: false,
+    );
+
+    await repository.replaceSemesterTimetable(first);
+    await repository.replaceSemesterTimetable(second);
+
+    expect((await repository.getSemesterTimetable('semester-a'))!.courses, [
+      first.courses.single,
+    ]);
+    expect((await repository.getSemesterTimetable('semester-b'))!.courses, [
+      second.courses.single,
+    ]);
+    expect(first.courses.single.sessions.single.weekday, DateTime.monday);
+    expect(second.courses.single.sessions.single.weekday, DateTime.monday);
+    expect(first.courses.single.sessions.single.startPeriod, 1);
+    expect(second.courses.single.sessions.single.startPeriod, 1);
+  });
+
+  test('create blank copies calendar and periods but not courses', () async {
+    final template = _timetable(courseId: 'course-a', courseName: '高等数学');
+    await repository.replaceSemesterTimetable(template);
+
+    final created = await repository.createBlankTimetable(
+      name: '  新课表  ',
+      template: template.semester,
+    );
+    final result = await repository.getSemesterTimetable(created.id);
+
+    expect(created.timetableName, '新课表');
+    expect(created.academicYear, template.semester.academicYear);
+    expect(created.term, template.semester.term);
+    expect(created.name, template.semester.name);
+    expect(created.startDate, template.semester.startDate);
+    expect(created.teachingWeeks, template.semester.teachingWeeks);
+    expect(created.timeZone, template.semester.timeZone);
+    expect(created.isCurrent, isTrue);
+    expect(result!.courses, isEmpty);
+    expect(
+      result.periodDefinitions.single.copyWith(
+        id: template.periodDefinitions.single.id,
+        semesterId: template.semester.id,
+      ),
+      template.periodDefinitions.single,
+    );
+    expect(
+      (await repository.getSemester(template.semester.id))!.isCurrent,
+      false,
+    );
+  });
+
+  test('rename trims name and rejects blank names', () async {
+    final timetable = _timetable(courseId: 'course-a', courseName: '高等数学');
+    await repository.replaceSemesterTimetable(timetable);
+
+    await repository.renameTimetable(timetable.semester.id, '  主课表  ');
+    expect(
+      (await repository.getSemester(timetable.semester.id))!.timetableName,
+      '主课表',
+    );
+    await expectLater(
+      repository.renameTimetable(timetable.semester.id, '   '),
+      throwsArgumentError,
+    );
+  });
+
+  test(
+    'switch persists exactly one current and rejects missing target',
+    () async {
+      final first = _timetable(
+        semesterId: 'semester-a',
+        timetableName: '课表 A',
+        courseId: 'course-a',
+        courseName: '高等数学',
+      );
+      final second = _timetable(
+        semesterId: 'semester-b',
+        timetableName: '课表 B',
+        courseId: 'course-b',
+        courseName: '大学英语',
+        isCurrent: false,
+      );
+      await repository.replaceSemesterTimetable(first);
+      await repository.replaceSemesterTimetable(second);
+
+      await repository.switchCurrent(second.semester.id);
+      final semesters = await repository.getSemesters();
+      expect(
+        semesters.where((semester) => semester.isCurrent).single.id,
+        'semester-b',
+      );
+      expect((await repository.watchCurrentSemester().first)!.id, 'semester-b');
+
+      await expectLater(
+        repository.setCurrentSemester('missing'),
+        throwsStateError,
+      );
+      expect(
+        (await repository.getSemesters())
+            .where((semester) => semester.isCurrent)
+            .single
+            .id,
+        'semester-b',
+      );
+    },
+  );
+
+  test('delete current selects stable first remaining timetable', () async {
+    final current = _timetable(
+      semesterId: 'current',
+      timetableName: '当前',
+      courseId: 'course-current',
+      courseName: '当前课程',
+      startDate: DateTime(2026, 9, 1),
+    );
+    final older = _timetable(
+      semesterId: 'older',
+      timetableName: '较早',
+      courseId: 'course-older',
+      courseName: '较早课程',
+      startDate: DateTime(2025, 9, 1),
+      isCurrent: false,
+    );
+    final newer = _timetable(
+      semesterId: 'newer',
+      timetableName: '较新',
+      courseId: 'course-newer',
+      courseName: '较新课程',
+      startDate: DateTime(2027, 9, 1),
+      isCurrent: false,
+    );
+    await repository.replaceSemesterTimetable(current);
+    await repository.replaceSemesterTimetable(older);
+    await repository.replaceSemesterTimetable(newer);
+
+    final fallback = await repository.deleteTimetableAndSelectFallback(
+      'current',
+    );
+
+    expect(fallback.id, 'newer');
+    expect((await repository.getSemester('newer'))!.isCurrent, isTrue);
+    expect(await repository.getSemester('current'), isNull);
+  });
+
+  test('delete last recreates blank timetable from deleted template', () async {
+    final timetable = _timetable(courseId: 'course-a', courseName: '高等数学');
+    await repository.replaceSemesterTimetable(timetable);
+
+    final replacement = await repository.deleteTimetableAndSelectFallback(
+      timetable.semester.id,
+    );
+    final loaded = await repository.getSemesterTimetable(replacement.id);
+
+    expect(replacement.id, 'generated-0');
+    expect(replacement.timetableName, '我的课表');
+    expect(replacement.isCurrent, isTrue);
+    expect(loaded!.courses, isEmpty);
+    expect(loaded.periodDefinitions, hasLength(1));
+    expect(loaded.periodDefinitions.single.semesterId, replacement.id);
+    expect(loaded.semester.startDate, timetable.semester.startDate);
+  });
+
+  test('replace target A does not affect target B', () async {
+    final first = _timetable(
+      semesterId: 'semester-a',
+      timetableName: '课表 A',
+      courseId: 'course-a',
+      courseName: '高等数学',
+    );
+    final second = _timetable(
+      semesterId: 'semester-b',
+      timetableName: '课表 B',
+      courseId: 'course-b',
+      courseName: '大学英语',
+      isCurrent: false,
+    );
+    await repository.replaceSemesterTimetable(first);
+    await repository.replaceSemesterTimetable(second);
+
+    await repository.replaceSemesterTimetable(
+      first.copyWith(
+        courses: [_course(first.semester.id, id: 'course-a2', name: '线性代数')],
+      ),
+    );
+
+    expect(
+      (await repository.getSemesterTimetable('semester-a'))!
+          .courses
+          .single
+          .course
+          .name,
+      '线性代数',
+    );
+    expect(await repository.getSemesterTimetable('semester-b'), second);
+  });
+
+  test(
+    'duplicate ids roll back replacement without affecting other timetable',
+    () async {
+      final first = _timetable(
+        semesterId: 'semester-a',
+        timetableName: '课表 A',
+        courseId: 'course-a',
+        courseName: '高等数学',
+      );
+      final second = _timetable(
+        semesterId: 'semester-b',
+        timetableName: '课表 B',
+        courseId: 'course-b',
+        courseName: '大学英语',
+        isCurrent: false,
+      );
+      await repository.replaceSemesterTimetable(first);
+      await repository.replaceSemesterTimetable(second);
+
+      final conflicting = second.copyWith(
+        courses: [
+          _course(
+            second.semester.id,
+            id: first.courses.single.course.id,
+            name: '冲突课程',
+          ),
+        ],
+      );
+      await expectLater(
+        repository.replaceSemesterTimetable(conflicting),
+        throwsStateError,
+      );
+
+      expect(await repository.getSemesterTimetable('semester-a'), first);
+      expect(await repository.getSemesterTimetable('semester-b'), second);
+    },
+  );
 }
 
 SemesterTimetable _timetable({
+  String semesterId = '2026-fall',
+  String timetableName = '秋季学期',
   required String courseId,
   required String courseName,
+  DateTime? startDate,
+  bool isCurrent = true,
 }) {
   final semester = Semester(
-    id: '2026-fall',
+    id: semesterId,
     academicYear: '2026-2027',
     term: '1',
     name: '秋季学期',
-    startDate: DateTime(2026, 9, 1),
+    timetableName: timetableName,
+    startDate: startDate ?? DateTime(2026, 9, 1),
     teachingWeeks: 18,
-    isCurrent: true,
+    isCurrent: isCurrent,
   );
   return SemesterTimetable(
     semester: semester,
     courses: [_course(semester.id, id: courseId, name: courseName)],
     periodDefinitions: [
       PeriodDefinition(
-        id: 'period-1',
+        id: 'period-$semesterId-1',
         semesterId: semester.id,
         period: 1,
         startTime: '08:00',

@@ -167,11 +167,71 @@ void main() {
         );
         final last = periods.last;
         expect(
-          find.text('第${last.period}节\n${last.startTime}–${last.endTime}'),
+          find.byKey(WeeklyTimetableView.periodNumberKey(last.period)),
           findsOneWidget,
         );
+        expect(
+          find.byKey(WeeklyTimetableView.startTimeKey(last.period)),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(WeeklyTimetableView.endTimeKey(last.period)),
+          findsOneWidget,
+        );
+        expect(find.text('第${last.period}节'), findsOneWidget);
+        expect(find.text(last.startTime), findsOneWidget);
+        expect(find.text(last.endTime), findsOneWidget);
       });
     }
+
+    testWidgets('节次轴固定三个独立 Text 且按顺序完全位于 cell 内', (tester) async {
+      final periods = _periods(8);
+      final timetable = _timetable([
+        _course(
+          id: 'axis-lines',
+          name: '轴测试课程',
+          sessions: [
+            _session(
+              id: 'axis-lines-session',
+              courseId: 'axis-lines',
+              weeks: {1},
+            ),
+          ],
+        ),
+      ], periodDefinitions: periods);
+
+      await _pumpView(tester, timetable: timetable, teachingWeek: 1);
+
+      for (final period in periods) {
+        final cell = tester.getRect(
+          find.byKey(WeeklyTimetableView.periodCellKey(period.period)),
+        );
+        final number = tester.getRect(
+          find.byKey(WeeklyTimetableView.periodNumberKey(period.period)),
+        );
+        final start = tester.getRect(
+          find.byKey(WeeklyTimetableView.startTimeKey(period.period)),
+        );
+        final end = tester.getRect(
+          find.byKey(WeeklyTimetableView.endTimeKey(period.period)),
+        );
+        expect(number.top, greaterThanOrEqualTo(cell.top));
+        expect(number.bottom, lessThanOrEqualTo(start.top));
+        expect(start.bottom, lessThanOrEqualTo(end.top));
+        expect(end.bottom, lessThanOrEqualTo(cell.bottom));
+        expect(number.left, greaterThanOrEqualTo(cell.left));
+        expect(end.right, lessThanOrEqualTo(cell.right));
+
+        final semantics = tester.getSemantics(
+          find.byKey(WeeklyTimetableView.periodCellKey(period.period)),
+        );
+        expect(
+          semantics.label,
+          '第${period.period}节，上课时间${period.startTime}，'
+          '下课时间${period.endTime}',
+        );
+      }
+    });
 
     testWidgets('空 PeriodDefinition 保留 12 节 fallback', (tester) async {
       final timetable = _timetable([
@@ -195,9 +255,22 @@ void main() {
       expect(find.byKey(WeeklyTimetableView.periodCellKey(1)), findsOneWidget);
       expect(find.byKey(WeeklyTimetableView.periodCellKey(12)), findsOneWidget);
       expect(find.byKey(WeeklyTimetableView.periodCellKey(13)), findsNothing);
+      expect(
+        find.descendant(
+          of: find.byKey(WeeklyTimetableView.periodCellKey(12)),
+          matching: find.text('--:--'),
+        ),
+        findsNWidgets(2),
+      );
+      final semantics = tester.getSemantics(
+        find.byKey(WeeklyTimetableView.periodCellKey(12)),
+      );
+      expect(semantics.label, contains('第12节'));
+      expect(semantics.label, contains('上课时间未提供'));
+      expect(semantics.label, contains('下课时间未提供'));
     });
 
-    testWidgets('三段标签按定义派生节数且组间有 10px 分隔', (tester) async {
+    testWidgets('三段标题按定义派生节数且各占独立 18px band', (tester) async {
       final timetable = _timetable([
         _course(
           id: 'groups',
@@ -213,17 +286,48 @@ void main() {
       expect(find.text('上午 · 4节'), findsOneWidget);
       expect(find.text('下午 · 4节'), findsOneWidget);
       expect(find.text('晚上 · 4节'), findsOneWidget);
-      expect(
+      for (final group in PeriodGroup.values) {
+        expect(
+          find.byKey(WeeklyTimetableView.groupLabelKey(group)),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(WeeklyTimetableView.groupSeparatorKey(group)),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(WeeklyTimetableView.groupGridHeaderKey(group)),
+          findsOneWidget,
+        );
+        final axisHeaderRect = tester.getRect(
+          find.byKey(WeeklyTimetableView.groupSeparatorKey(group)),
+        );
+        final gridHeaderRect = tester.getRect(
+          find.byKey(WeeklyTimetableView.groupGridHeaderKey(group)),
+        );
+        expect(gridHeaderRect.top, closeTo(axisHeaderRect.top, 0.01));
+        expect(gridHeaderRect.bottom, closeTo(axisHeaderRect.bottom, 0.01));
+        final semantics = tester.getSemantics(
+          find.byKey(WeeklyTimetableView.groupLabelKey(group)),
+        );
+        expect(semantics.label, '${_groupLabel(group)}，共4节');
+        expect(semantics.flagsCollection.isHeader, isTrue);
+      }
+
+      final morningHeader = tester.getRect(
+        find.byKey(WeeklyTimetableView.groupSeparatorKey(PeriodGroup.morning)),
+      );
+      final afternoonHeader = tester.getRect(
         find.byKey(
           WeeklyTimetableView.groupSeparatorKey(PeriodGroup.afternoon),
         ),
-        findsOneWidget,
       );
-      expect(
+      final eveningHeader = tester.getRect(
         find.byKey(WeeklyTimetableView.groupSeparatorKey(PeriodGroup.evening)),
-        findsOneWidget,
       );
-
+      final period1 = tester.getRect(
+        find.byKey(WeeklyTimetableView.periodCellKey(1)),
+      );
       final period4 = tester.getRect(
         find.byKey(WeeklyTimetableView.periodCellKey(4)),
       );
@@ -236,8 +340,14 @@ void main() {
       final period9 = tester.getRect(
         find.byKey(WeeklyTimetableView.periodCellKey(9)),
       );
-      expect(period5.top - period4.bottom, closeTo(10, 0.01));
-      expect(period9.top - period8.bottom, closeTo(10, 0.01));
+      expect(morningHeader.height, closeTo(18, 0.01));
+      expect(afternoonHeader.height, closeTo(18, 0.01));
+      expect(eveningHeader.height, closeTo(18, 0.01));
+      expect(period1.top, closeTo(morningHeader.bottom, 0.01));
+      expect(period5.top, closeTo(afternoonHeader.bottom, 0.01));
+      expect(period9.top, closeTo(eveningHeader.bottom, 0.01));
+      expect(afternoonHeader.top, closeTo(period4.bottom, 0.01));
+      expect(eveningHeader.top, closeTo(period8.bottom, 0.01));
     });
 
     for (final periodCount in <int>[8, 10]) {
@@ -318,6 +428,63 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    for (final textScale in <double>[1, 2, 3]) {
+      testWidgets('${textScale}x 字体三行轴不裁剪且需要时滚动', (tester) async {
+        final timetable = _timetable([
+          _course(
+            id: 'scale-$textScale',
+            name: '缩放课程',
+            sessions: [
+              _session(
+                id: 'scale-$textScale-session',
+                courseId: 'scale-$textScale',
+                weeks: {1},
+              ),
+            ],
+          ),
+        ], periodDefinitions: _periods(10));
+
+        await _pumpView(
+          tester,
+          timetable: timetable,
+          teachingWeek: 1,
+          width: 320,
+          textScaler: TextScaler.linear(textScale),
+        );
+
+        final cell = tester.getRect(
+          find.byKey(WeeklyTimetableView.periodCellKey(1)),
+        );
+        final number = tester.getRect(
+          find.byKey(WeeklyTimetableView.periodNumberKey(1)),
+        );
+        final start = tester.getRect(
+          find.byKey(WeeklyTimetableView.startTimeKey(1)),
+        );
+        final end = tester.getRect(
+          find.byKey(WeeklyTimetableView.endTimeKey(1)),
+        );
+        expect(number.top, greaterThanOrEqualTo(cell.top));
+        expect(number.bottom, lessThanOrEqualTo(start.top));
+        expect(start.bottom, lessThanOrEqualTo(end.top));
+        expect(end.bottom, lessThanOrEqualTo(cell.bottom));
+        expect(
+          cell.height,
+          greaterThanOrEqualTo(
+            textScale == 1
+                ? 50
+                : textScale == 2
+                ? 76
+                : 102,
+          ),
+        );
+        if (textScale > 1) {
+          expect(_verticalPosition(tester).maxScrollExtent, greaterThan(0));
+        }
+        expect(tester.takeException(), isNull);
+      });
+    }
+
     testWidgets('大字体提高最小行高且无 overflow', (tester) async {
       final timetable = _timetable([
         _course(
@@ -376,6 +543,10 @@ void main() {
         );
 
         final viewRect = tester.getRect(find.byType(WeeklyTimetableView));
+        final axisCell = tester.getRect(
+          find.byKey(WeeklyTimetableView.periodCellKey(1)),
+        );
+        expect(axisCell.width, greaterThanOrEqualTo(60));
         for (
           var weekday = DateTime.monday;
           weekday <= DateTime.sunday;
@@ -835,6 +1006,14 @@ void main() {
   });
 }
 
+String _groupLabel(PeriodGroup group) {
+  return switch (group) {
+    PeriodGroup.morning => '上午',
+    PeriodGroup.afternoon => '下午',
+    PeriodGroup.evening => '晚上',
+  };
+}
+
 void _expectNoTableStructure() {
   expect(
     find.byKey(WeeklyTimetableView.headerHorizontalScrollKey),
@@ -915,6 +1094,7 @@ SemesterTimetable _timetable(
       academicYear: '2026-2027',
       term: '1',
       name: '测试学期',
+      timetableName: '测试课表',
       startDate: DateTime(2026, 9, 7),
       teachingWeeks: 20,
     ),

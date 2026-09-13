@@ -47,6 +47,18 @@ class $SemestersTable extends Semesters
     type: DriftSqlType.string,
     requiredDuringInsert: true,
   );
+  static const VerificationMeta _timetableNameMeta = const VerificationMeta(
+    'timetableName',
+  );
+  @override
+  late final GeneratedColumn<String> timetableName = GeneratedColumn<String>(
+    'timetable_name',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('我的课表'),
+  );
   static const VerificationMeta _startDateMeta = const VerificationMeta(
     'startDate',
   );
@@ -102,6 +114,7 @@ class $SemestersTable extends Semesters
     academicYear,
     term,
     name,
+    timetableName,
     startDate,
     teachingWeeks,
     timeZone,
@@ -150,6 +163,15 @@ class $SemestersTable extends Semesters
       );
     } else if (isInserting) {
       context.missing(_nameMeta);
+    }
+    if (data.containsKey('timetable_name')) {
+      context.handle(
+        _timetableNameMeta,
+        timetableName.isAcceptableOrUnknown(
+          data['timetable_name']!,
+          _timetableNameMeta,
+        ),
+      );
     }
     if (data.containsKey('start_date')) {
       context.handle(
@@ -207,6 +229,10 @@ class $SemestersTable extends Semesters
         DriftSqlType.string,
         data['${effectivePrefix}name'],
       )!,
+      timetableName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}timetable_name'],
+      )!,
       startDate: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}start_date'],
@@ -237,6 +263,7 @@ class Semester extends DataClass implements Insertable<Semester> {
   final String academicYear;
   final String term;
   final String name;
+  final String timetableName;
   final DateTime startDate;
   final int teachingWeeks;
   final String timeZone;
@@ -246,6 +273,7 @@ class Semester extends DataClass implements Insertable<Semester> {
     required this.academicYear,
     required this.term,
     required this.name,
+    required this.timetableName,
     required this.startDate,
     required this.teachingWeeks,
     required this.timeZone,
@@ -258,6 +286,7 @@ class Semester extends DataClass implements Insertable<Semester> {
     map['academic_year'] = Variable<String>(academicYear);
     map['term'] = Variable<String>(term);
     map['name'] = Variable<String>(name);
+    map['timetable_name'] = Variable<String>(timetableName);
     map['start_date'] = Variable<DateTime>(startDate);
     map['teaching_weeks'] = Variable<int>(teachingWeeks);
     map['time_zone'] = Variable<String>(timeZone);
@@ -271,6 +300,7 @@ class Semester extends DataClass implements Insertable<Semester> {
       academicYear: Value(academicYear),
       term: Value(term),
       name: Value(name),
+      timetableName: Value(timetableName),
       startDate: Value(startDate),
       teachingWeeks: Value(teachingWeeks),
       timeZone: Value(timeZone),
@@ -288,6 +318,7 @@ class Semester extends DataClass implements Insertable<Semester> {
       academicYear: serializer.fromJson<String>(json['academicYear']),
       term: serializer.fromJson<String>(json['term']),
       name: serializer.fromJson<String>(json['name']),
+      timetableName: serializer.fromJson<String>(json['timetableName']),
       startDate: serializer.fromJson<DateTime>(json['startDate']),
       teachingWeeks: serializer.fromJson<int>(json['teachingWeeks']),
       timeZone: serializer.fromJson<String>(json['timeZone']),
@@ -302,6 +333,7 @@ class Semester extends DataClass implements Insertable<Semester> {
       'academicYear': serializer.toJson<String>(academicYear),
       'term': serializer.toJson<String>(term),
       'name': serializer.toJson<String>(name),
+      'timetableName': serializer.toJson<String>(timetableName),
       'startDate': serializer.toJson<DateTime>(startDate),
       'teachingWeeks': serializer.toJson<int>(teachingWeeks),
       'timeZone': serializer.toJson<String>(timeZone),
@@ -314,6 +346,7 @@ class Semester extends DataClass implements Insertable<Semester> {
     String? academicYear,
     String? term,
     String? name,
+    String? timetableName,
     DateTime? startDate,
     int? teachingWeeks,
     String? timeZone,
@@ -323,6 +356,7 @@ class Semester extends DataClass implements Insertable<Semester> {
     academicYear: academicYear ?? this.academicYear,
     term: term ?? this.term,
     name: name ?? this.name,
+    timetableName: timetableName ?? this.timetableName,
     startDate: startDate ?? this.startDate,
     teachingWeeks: teachingWeeks ?? this.teachingWeeks,
     timeZone: timeZone ?? this.timeZone,
@@ -336,6 +370,9 @@ class Semester extends DataClass implements Insertable<Semester> {
           : this.academicYear,
       term: data.term.present ? data.term.value : this.term,
       name: data.name.present ? data.name.value : this.name,
+      timetableName: data.timetableName.present
+          ? data.timetableName.value
+          : this.timetableName,
       startDate: data.startDate.present ? data.startDate.value : this.startDate,
       teachingWeeks: data.teachingWeeks.present
           ? data.teachingWeeks.value
@@ -352,6 +389,7 @@ class Semester extends DataClass implements Insertable<Semester> {
           ..write('academicYear: $academicYear, ')
           ..write('term: $term, ')
           ..write('name: $name, ')
+          ..write('timetableName: $timetableName, ')
           ..write('startDate: $startDate, ')
           ..write('teachingWeeks: $teachingWeeks, ')
           ..write('timeZone: $timeZone, ')
@@ -366,6 +404,7 @@ class Semester extends DataClass implements Insertable<Semester> {
     academicYear,
     term,
     name,
+    timetableName,
     startDate,
     teachingWeeks,
     timeZone,
@@ -379,6 +418,7 @@ class Semester extends DataClass implements Insertable<Semester> {
           other.academicYear == this.academicYear &&
           other.term == this.term &&
           other.name == this.name &&
+          other.timetableName == this.timetableName &&
           other.startDate == this.startDate &&
           other.teachingWeeks == this.teachingWeeks &&
           other.timeZone == this.timeZone &&
@@ -390,6 +430,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
   final Value<String> academicYear;
   final Value<String> term;
   final Value<String> name;
+  final Value<String> timetableName;
   final Value<DateTime> startDate;
   final Value<int> teachingWeeks;
   final Value<String> timeZone;
@@ -400,6 +441,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
     this.academicYear = const Value.absent(),
     this.term = const Value.absent(),
     this.name = const Value.absent(),
+    this.timetableName = const Value.absent(),
     this.startDate = const Value.absent(),
     this.teachingWeeks = const Value.absent(),
     this.timeZone = const Value.absent(),
@@ -411,6 +453,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
     required String academicYear,
     required String term,
     required String name,
+    this.timetableName = const Value.absent(),
     required DateTime startDate,
     required int teachingWeeks,
     this.timeZone = const Value.absent(),
@@ -427,6 +470,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
     Expression<String>? academicYear,
     Expression<String>? term,
     Expression<String>? name,
+    Expression<String>? timetableName,
     Expression<DateTime>? startDate,
     Expression<int>? teachingWeeks,
     Expression<String>? timeZone,
@@ -438,6 +482,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
       if (academicYear != null) 'academic_year': academicYear,
       if (term != null) 'term': term,
       if (name != null) 'name': name,
+      if (timetableName != null) 'timetable_name': timetableName,
       if (startDate != null) 'start_date': startDate,
       if (teachingWeeks != null) 'teaching_weeks': teachingWeeks,
       if (timeZone != null) 'time_zone': timeZone,
@@ -451,6 +496,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
     Value<String>? academicYear,
     Value<String>? term,
     Value<String>? name,
+    Value<String>? timetableName,
     Value<DateTime>? startDate,
     Value<int>? teachingWeeks,
     Value<String>? timeZone,
@@ -462,6 +508,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
       academicYear: academicYear ?? this.academicYear,
       term: term ?? this.term,
       name: name ?? this.name,
+      timetableName: timetableName ?? this.timetableName,
       startDate: startDate ?? this.startDate,
       teachingWeeks: teachingWeeks ?? this.teachingWeeks,
       timeZone: timeZone ?? this.timeZone,
@@ -484,6 +531,9 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
     }
     if (name.present) {
       map['name'] = Variable<String>(name.value);
+    }
+    if (timetableName.present) {
+      map['timetable_name'] = Variable<String>(timetableName.value);
     }
     if (startDate.present) {
       map['start_date'] = Variable<DateTime>(startDate.value);
@@ -510,6 +560,7 @@ class SemestersCompanion extends UpdateCompanion<Semester> {
           ..write('academicYear: $academicYear, ')
           ..write('term: $term, ')
           ..write('name: $name, ')
+          ..write('timetableName: $timetableName, ')
           ..write('startDate: $startDate, ')
           ..write('teachingWeeks: $teachingWeeks, ')
           ..write('timeZone: $timeZone, ')
@@ -2115,6 +2166,7 @@ typedef $$SemestersTableCreateCompanionBuilder = SemestersCompanion Function({
   required String academicYear,
   required String term,
   required String name,
+  Value<String> timetableName,
   required DateTime startDate,
   required int teachingWeeks,
   Value<String> timeZone,
@@ -2126,6 +2178,7 @@ typedef $$SemestersTableUpdateCompanionBuilder = SemestersCompanion Function({
   Value<String> academicYear,
   Value<String> term,
   Value<String> name,
+  Value<String> timetableName,
   Value<DateTime> startDate,
   Value<int> teachingWeeks,
   Value<String> timeZone,
@@ -2204,6 +2257,11 @@ class $$SemestersTableFilterComposer
 
   ColumnFilters<String> get name => $composableBuilder(
     column: $table.name,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get timetableName => $composableBuilder(
+    column: $table.timetableName,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -2307,6 +2365,11 @@ class $$SemestersTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get timetableName => $composableBuilder(
+    column: $table.timetableName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get startDate => $composableBuilder(
     column: $table.startDate,
     builder: (column) => ColumnOrderings(column),
@@ -2350,6 +2413,11 @@ class $$SemestersTableAnnotationComposer
 
   GeneratedColumn<String> get name =>
       $composableBuilder(column: $table.name, builder: (column) => column);
+
+  GeneratedColumn<String> get timetableName => $composableBuilder(
+    column: $table.timetableName,
+    builder: (column) => column,
+  );
 
   GeneratedColumn<DateTime> get startDate =>
       $composableBuilder(column: $table.startDate, builder: (column) => column);
@@ -2449,6 +2517,7 @@ class $$SemestersTableTableManager
                 Value<String> academicYear = const Value.absent(),
                 Value<String> term = const Value.absent(),
                 Value<String> name = const Value.absent(),
+                Value<String> timetableName = const Value.absent(),
                 Value<DateTime> startDate = const Value.absent(),
                 Value<int> teachingWeeks = const Value.absent(),
                 Value<String> timeZone = const Value.absent(),
@@ -2459,6 +2528,7 @@ class $$SemestersTableTableManager
                 academicYear: academicYear,
                 term: term,
                 name: name,
+                timetableName: timetableName,
                 startDate: startDate,
                 teachingWeeks: teachingWeeks,
                 timeZone: timeZone,
@@ -2471,6 +2541,7 @@ class $$SemestersTableTableManager
                 required String academicYear,
                 required String term,
                 required String name,
+                Value<String> timetableName = const Value.absent(),
                 required DateTime startDate,
                 required int teachingWeeks,
                 Value<String> timeZone = const Value.absent(),
@@ -2481,6 +2552,7 @@ class $$SemestersTableTableManager
                 academicYear: academicYear,
                 term: term,
                 name: name,
+                timetableName: timetableName,
                 startDate: startDate,
                 teachingWeeks: teachingWeeks,
                 timeZone: timeZone,

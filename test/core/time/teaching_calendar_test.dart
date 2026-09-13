@@ -8,6 +8,7 @@ void main() {
     academicYear: '2026-2027',
     term: '1',
     name: '2026 秋季学期',
+    timetableName: '2026 秋季学期',
     startDate: DateTime(2026, 9, 2),
     teachingWeeks: 2,
   );

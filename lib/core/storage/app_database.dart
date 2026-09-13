@@ -8,6 +8,7 @@ class Semesters extends Table {
   TextColumn get academicYear => text()();
   TextColumn get term => text()();
   TextColumn get name => text()();
+  TextColumn get timetableName => text().withDefault(const Constant('我的课表'))();
   DateTimeColumn get startDate => dateTime()();
   IntColumn get teachingWeeks => integer()();
   TextColumn get timeZone => text().withDefault(const Constant('local'))();
@@ -72,10 +73,15 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'schedulr'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
+    onUpgrade: (migrator, from, to) async {
+      if (from < 2) {
+        await migrator.addColumn(semesters, semesters.timetableName);
+      }
+    },
     beforeOpen: (details) async {
       await customStatement('PRAGMA foreign_keys = ON');
     },

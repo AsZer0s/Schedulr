@@ -8,22 +8,32 @@ import '../../domain/import_timetable.dart';
 import '../timetable_import_page.dart';
 
 class ImportRoutePage extends ConsumerWidget {
-  const ImportRoutePage({super.key});
+  const ImportRoutePage({this.targetSemesterId, this.initialSource, super.key});
+
+  final String? targetSemesterId;
+  final String? initialSource;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final timetable = ref.watch(currentTimetableProvider);
+    final targetId = targetSemesterId?.trim();
+    final timetable = targetId == null || targetId.isEmpty
+        ? ref.watch(currentTimetableProvider)
+        : ref.watch(semesterTimetableByIdProvider(targetId));
     return timetable.when(
       loading: () =>
           const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (error, _) =>
-          const Scaffold(body: Center(child: Text('读取本地课表失败'))),
+          const Scaffold(body: Center(child: Text('读取目标课表失败'))),
       data: (value) {
         if (value == null) {
-          return const Scaffold(body: Center(child: Text('尚未初始化学期')));
+          return const Scaffold(body: Center(child: Text('目标课表不存在或已被删除')));
         }
         return TimetableImportPage(
+          targetTimetableName: value.semester.timetableName,
           existingEntries: _existingEntries(value),
+          initialSource: initialSource == 'demo'
+              ? ImportSourceChoice.demo
+              : ImportSourceChoice.bitc,
           onCommit: (request) async {
             await TimetableImportCoordinator(
               ref.read(timetableRepositoryProvider),

@@ -51,11 +51,23 @@ class WeeklyTimetableView extends StatefulWidget {
   static Key periodCellKey(int period) =>
       ValueKey<String>('weekly-timetable-period-cell-$period');
 
+  static Key periodNumberKey(int period) =>
+      ValueKey<String>('weekly-timetable-period-number-$period');
+
+  static Key startTimeKey(int period) =>
+      ValueKey<String>('weekly-timetable-start-time-$period');
+
+  static Key endTimeKey(int period) =>
+      ValueKey<String>('weekly-timetable-end-time-$period');
+
   static Key groupLabelKey(PeriodGroup group) =>
       ValueKey<String>('weekly-timetable-group-label-${group.name}');
 
   static Key groupSeparatorKey(PeriodGroup group) =>
       ValueKey<String>('weekly-timetable-group-separator-${group.name}');
+
+  static Key groupGridHeaderKey(PeriodGroup group) =>
+      ValueKey<String>('weekly-timetable-group-grid-header-${group.name}');
 
   static Key courseTeacherKey(String sessionId) =>
       ValueKey<String>('course-teacher-$sessionId');
@@ -85,9 +97,9 @@ class WeeklyTimetableView extends StatefulWidget {
 
 class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
   static const double _headerHeight = 58;
-  static const double _minimumAxisWidth = 42;
-  static const double _groupGap = 10;
-  static const double _baseMinimumRowHeight = 48;
+  static const double _minimumAxisWidth = 60;
+  static const double _groupHeaderHeight = 18;
+  static const double _baseMinimumRowHeight = 50;
 
   final ScrollController _headerHorizontalController = ScrollController();
   final ScrollController _gridHorizontalController = ScrollController();
@@ -250,26 +262,30 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
             0.0,
             availableHeight - _headerHeight - 1,
           );
-          final axisWidth = math.min(
+          final preferredAxisWidth = math.min(
             widget.periodAxisWidth,
-            math.max(_minimumAxisWidth, availableWidth * 0.15),
+            math.max(_minimumAxisWidth, availableWidth * 0.16),
+          );
+          final axisWidth = math.min(
+            preferredAxisWidth,
+            math.max(0.0, availableWidth - 1.01),
           );
           final gridViewportWidth = math.max(
-            0.0,
+            0.01,
             availableWidth - axisWidth - 1,
           );
           final effectiveDayWidth = gridViewportWidth / weekdays;
           final gridWidth = gridViewportWidth;
-          final separatorCount = _separatorCount(periods);
+          final groupHeaderCount = _nonEmptyGroupCount(periods);
           final textScale = _effectiveTextScale(context);
-          final minimumRowHeight = _baseMinimumRowHeight + (textScale - 1) * 16;
+          final minimumRowHeight = _baseMinimumRowHeight + (textScale - 1) * 26;
           final maximumRowHeight = math.max(
             minimumRowHeight,
             widget.periodRowHeight,
           );
           final availableRowsHeight = math.max(
             0.0,
-            bodyViewportHeight - separatorCount * _groupGap,
+            bodyViewportHeight - groupHeaderCount * _groupHeaderHeight,
           );
           final fittingRowHeight = periods.isEmpty
               ? maximumRowHeight
@@ -281,7 +297,7 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
           final metrics = _TimetableVerticalMetrics(
             periods: periods,
             rowHeight: rowHeight,
-            groupGap: _groupGap,
+            groupHeaderHeight: _groupHeaderHeight,
           );
           final canScrollHorizontally = gridWidth - gridViewportWidth > 0.01;
           final canScrollVertically =
@@ -330,6 +346,19 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
                           color: Theme.of(context).colorScheme.primaryContainer
                               .withValues(alpha: 0.32),
                         ),
+                      ),
+                    ),
+                  for (final header in metrics.groupHeaders)
+                    Positioned(
+                      key: WeeklyTimetableView.groupGridHeaderKey(header.group),
+                      left: 0,
+                      right: 0,
+                      top: header.top,
+                      height: header.bottom - header.top,
+                      child: ColoredBox(
+                        color: Theme.of(context)
+                            .colorScheme
+                            .surfaceContainerHighest,
                       ),
                     ),
                   Positioned.fill(
@@ -816,35 +845,44 @@ class _WeekdayHeader extends StatelessWidget {
   }
 }
 
-class _GroupSeparatorMetric {
-  const _GroupSeparatorMetric({
-    required this.beforeGroup,
+class _GroupHeaderMetric {
+  const _GroupHeaderMetric({
+    required this.group,
     required this.top,
     required this.bottom,
+    required this.periodCount,
   });
 
-  final PeriodGroup beforeGroup;
+  final PeriodGroup group;
   final double top;
   final double bottom;
+  final int periodCount;
 }
 
 class _TimetableVerticalMetrics {
   _TimetableVerticalMetrics({
     required List<_DisplayPeriod> periods,
     required this.rowHeight,
-    required this.groupGap,
+    required this.groupHeaderHeight,
   }) {
     var offset = 0.0;
     for (var index = 0; index < periods.length; index++) {
-      if (index > 0 && periods[index - 1].group != periods[index].group) {
-        separators.add(
-          _GroupSeparatorMetric(
-            beforeGroup: periods[index].group,
+      final startsGroup =
+          index == 0 || periods[index - 1].group != periods[index].group;
+      if (startsGroup) {
+        final group = periods[index].group;
+        final periodCount = periods
+            .where((period) => period.group == group)
+            .length;
+        groupHeaders.add(
+          _GroupHeaderMetric(
+            group: group,
             top: offset,
-            bottom: offset + groupGap,
+            bottom: offset + groupHeaderHeight,
+            periodCount: periodCount,
           ),
         );
-        offset += groupGap;
+        offset += groupHeaderHeight;
       }
       periodTops.add(offset);
       offset += rowHeight;
@@ -854,10 +892,10 @@ class _TimetableVerticalMetrics {
   }
 
   final double rowHeight;
-  final double groupGap;
+  final double groupHeaderHeight;
   final List<double> periodTops = [];
   final List<double> periodBottoms = [];
-  final List<_GroupSeparatorMetric> separators = [];
+  final List<_GroupHeaderMetric> groupHeaders = [];
   late final double totalHeight;
 
   double periodTop(int row) => periodTops[row];
@@ -878,28 +916,49 @@ class _PeriodAxis extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final groupCounts = <PeriodGroup, int>{
-      for (final group in PeriodGroup.values)
-        group: periods.where((period) => period.group == group).length,
-    };
     return SizedBox(
       width: width,
       height: metrics.totalHeight,
       child: Stack(
         children: [
-          for (final separator in metrics.separators)
+          for (final header in metrics.groupHeaders)
             Positioned(
-              key: WeeklyTimetableView.groupSeparatorKey(separator.beforeGroup),
+              key: WeeklyTimetableView.groupSeparatorKey(header.group),
               left: 0,
               right: 0,
-              top: separator.top,
-              height: separator.bottom - separator.top,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  border: Border.symmetric(
-                    horizontal: BorderSide(
-                      color: Theme.of(context).dividerColor,
+              top: header.top,
+              height: header.bottom - header.top,
+              child: Semantics(
+                key: WeeklyTimetableView.groupLabelKey(header.group),
+                container: true,
+                header: true,
+                label:
+                    '${_periodGroupLabel(header.group)}，共${header.periodCount}节',
+                child: ExcludeSemantics(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: Theme.of(context)
+                          .colorScheme
+                          .surfaceContainerHighest,
+                      border: Border.symmetric(
+                        horizontal: BorderSide(
+                          color: Theme.of(context).dividerColor,
+                        ),
+                      ),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${_periodGroupLabel(header.group)} · ${header.periodCount}节',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 9,
+                          height: 1,
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -912,13 +971,7 @@ class _PeriodAxis extends StatelessWidget {
               right: 0,
               top: metrics.periodTop(index),
               height: metrics.rowHeight,
-              child: _PeriodAxisCell(
-                period: periods[index],
-                groupCount: groupCounts[periods[index].group]!,
-                showGroupLabel:
-                    index == 0 ||
-                    periods[index - 1].group != periods[index].group,
-              ),
+              child: _PeriodAxisCell(period: periods[index]),
             ),
         ],
       ),
@@ -927,29 +980,26 @@ class _PeriodAxis extends StatelessWidget {
 }
 
 class _PeriodAxisCell extends StatelessWidget {
-  const _PeriodAxisCell({
-    required this.period,
-    required this.groupCount,
-    required this.showGroupLabel,
-  });
+  const _PeriodAxisCell({required this.period});
 
   final _DisplayPeriod period;
-  final int groupCount;
-  final bool showGroupLabel;
 
   @override
   Widget build(BuildContext context) {
-    final groupLabel = switch (period.group) {
-      PeriodGroup.morning => '上午',
-      PeriodGroup.afternoon => '下午',
-      PeriodGroup.evening => '晚上',
-    };
-    final colorScheme = Theme.of(context).colorScheme;
+    final startTime = period.startTime ?? '--:--';
+    final endTime = period.endTime ?? '--:--';
+    final semanticsLabel = period.hasTimes
+        ? '第${period.period}节，上课时间$startTime，下课时间$endTime'
+        : '第${period.period}节，上课时间未提供，下课时间未提供';
+    final timeStyle = TextStyle(
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+      fontSize: 9.5,
+      height: 1,
+    );
+
     return Semantics(
       container: true,
-      label: period.hasTimes
-          ? '第${period.period}节，${period.startTime}至${period.endTime}'
-          : '第${period.period}节',
+      label: semanticsLabel,
       child: ExcludeSemantics(
         child: DecoratedBox(
           decoration: BoxDecoration(
@@ -957,55 +1007,58 @@ class _PeriodAxisCell extends StatelessWidget {
               bottom: BorderSide(color: Theme.of(context).dividerColor),
             ),
           ),
-          child: Stack(
-            children: [
-              if (showGroupLabel)
-                Positioned(
-                  key: WeeklyTimetableView.groupLabelKey(period.group),
-                  left: 2,
-                  right: 2,
-                  top: 1,
-                  child: Text(
-                    '$groupLabel · $groupCount节',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.w700,
-                      fontSize: 9,
-                      height: 1.05,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 1, vertical: 2),
+            child: Center(
+              child: MediaQuery.withClampedTextScaling(
+                maxScaleFactor: 1.5,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      key: WeeklyTimetableView.periodNumberKey(period.period),
+                      '第${period.period}节',
+                      maxLines: 1,
+                      softWrap: false,
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        fontWeight: FontWeight.w700,
+                        height: 1,
+                      ),
                     ),
-                  ),
-                ),
-              Positioned.fill(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    2,
-                    showGroupLabel ? 14 : 2,
-                    2,
-                    2,
-                  ),
-                  child: Center(
-                    child: Text(
-                      period.hasTimes
-                          ? '第${period.period}节\n${period.startTime}–${period.endTime}'
-                          : '第${period.period}节',
-                      maxLines: period.hasTimes ? 2 : 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.labelSmall
-                          ?.copyWith(height: 1.05),
+                    const SizedBox(height: 2),
+                    Text(
+                      key: WeeklyTimetableView.startTimeKey(period.period),
+                      startTime,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: timeStyle,
                     ),
-                  ),
+                    const SizedBox(height: 2),
+                    Text(
+                      key: WeeklyTimetableView.endTimeKey(period.period),
+                      endTime,
+                      maxLines: 1,
+                      softWrap: false,
+                      style: timeStyle,
+                    ),
+                  ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+}
+
+String _periodGroupLabel(PeriodGroup group) {
+  return switch (group) {
+    PeriodGroup.morning => '上午',
+    PeriodGroup.afternoon => '下午',
+    PeriodGroup.evening => '晚上',
+  };
 }
 
 class _CourseCardPositioned extends StatelessWidget {
@@ -1156,20 +1209,20 @@ class _TimetableGridPainter extends CustomPainter {
     final linePaint = Paint()
       ..color = lineColor
       ..strokeWidth = 1;
-    final separatorPaint = Paint()..color = separatorColor;
-    for (final separator in metrics.separators) {
+    final headerPaint = Paint()..color = separatorColor;
+    for (final header in metrics.groupHeaders) {
       canvas.drawRect(
-        Rect.fromLTRB(0, separator.top, size.width, separator.bottom),
-        separatorPaint,
+        Rect.fromLTRB(0, header.top, size.width, header.bottom),
+        headerPaint,
       );
       canvas.drawLine(
-        Offset(0, separator.top),
-        Offset(size.width, separator.top),
+        Offset(0, header.top),
+        Offset(size.width, header.top),
         linePaint,
       );
       canvas.drawLine(
-        Offset(0, separator.bottom),
-        Offset(size.width, separator.bottom),
+        Offset(0, header.bottom),
+        Offset(size.width, header.bottom),
         linePaint,
       );
     }
@@ -1194,20 +1247,16 @@ class _TimetableGridPainter extends CustomPainter {
         oldDelegate.dayWidth != dayWidth ||
         oldDelegate.metrics.totalHeight != metrics.totalHeight ||
         oldDelegate.metrics.rowHeight != metrics.rowHeight ||
-        oldDelegate.metrics.groupGap != metrics.groupGap ||
+        oldDelegate.metrics.groupHeaderHeight != metrics.groupHeaderHeight ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.separatorColor != separatorColor;
   }
 }
 
-int _separatorCount(List<_DisplayPeriod> periods) {
-  var count = 0;
-  for (var index = 1; index < periods.length; index++) {
-    if (periods[index - 1].group != periods[index].group) {
-      count++;
-    }
-  }
-  return count;
+int _nonEmptyGroupCount(List<_DisplayPeriod> periods) {
+  return PeriodGroup.values
+      .where((group) => periods.any((period) => period.group == group))
+      .length;
 }
 
 double _effectiveTextScale(BuildContext context) {

@@ -23,6 +23,8 @@ final semestersProvider = StreamProvider<List<Semester>>((ref) {
   return ref.watch(timetableRepositoryProvider).watchSemesters();
 });
 
+final timetablesProvider = semestersProvider;
+
 final currentSemesterProvider = StreamProvider<Semester?>((ref) {
   return ref.watch(timetableRepositoryProvider).watchCurrentSemester();
 });
@@ -33,6 +35,15 @@ final semesterTimetableProvider =
           .watch(timetableRepositoryProvider)
           .watchSemesterTimetable(semesterId);
     });
+
+final semesterTimetableByIdProvider = semesterTimetableProvider;
+
+final semesterByIdProvider = FutureProvider.family<Semester?, String>((
+  ref,
+  semesterId,
+) {
+  return ref.watch(timetableRepositoryProvider).getSemester(semesterId);
+});
 
 final currentTimetableProvider = StreamProvider<SemesterTimetable?>((ref) {
   return ref.watch(timetableRepositoryProvider).watchCurrentTimetable();

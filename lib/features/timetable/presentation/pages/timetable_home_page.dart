@@ -1,14 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../core/time/teaching_calendar.dart';
 import '../../data/providers.dart';
 import '../../domain/timetable_models.dart';
 import '../weekly_timetable_view.dart';
+import 'timetable_switcher_sheet.dart';
+
+typedef CreateBlankTimetableCallback = Future<String> Function(
+  String name,
+  SemesterTimetable template,
+);
+typedef RenameTimetableCallback = Future<void> Function(String id, String name);
+typedef SelectTimetableCallback = Future<void> Function(String id);
+typedef DeleteTimetableCallback = Future<void> Function(String id);
+typedef ClearTimetableImportCookiesCallback = Future<void> Function();
 
 class TimetableHomePage extends ConsumerStatefulWidget {
-  const TimetableHomePage({super.key});
+  const TimetableHomePage({
+    this.createBlankTimetable,
+    this.renameTimetable,
+    this.selectTimetable,
+    this.deleteTimetable,
+    this.clearImportCookies,
+    super.key,
+  });
+
+  final CreateBlankTimetableCallback? createBlankTimetable;
+  final RenameTimetableCallback? renameTimetable;
+  final SelectTimetableCallback? selectTimetable;
+  final DeleteTimetableCallback? deleteTimetable;
+  final ClearTimetableImportCookiesCallback? clearImportCookies;
 
   @override
   ConsumerState<TimetableHomePage> createState() => _TimetableHomePageState();
@@ -77,19 +103,122 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
     context.push('/course/${course.course.id}');
   }
 
+  Future<void> _showTimetableSwitcher(
+    SemesterTimetable current,
+    List<Semester> semesters,
+  ) async {
+    final items = semesters
+        .map(
+          (semester) => TimetableSwitcherItem(
+            id: semester.id,
+            timetableName: _timetableName(semester),
+            semesterName: semester.name,
+            isCurrent: semester.id == current.semester.id,
+          ),
+        )
+        .toList(growable: false);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (sheetContext) => TimetableSwitcherSheet(
+        timetables: items,
+        onSelect: _setCurrentTimetable,
+        onRename: (timetable, name) => _renameTimetable(timetable.id, name),
+        onDelete: (timetable) => _deleteTimetable(timetable.id),
+        onAdd: (method, name) =>
+            _addTimetable(sheetContext, current, method, name),
+      ),
+    );
+  }
+
+  Future<void> _setCurrentTimetable(String id) async {
+    final callback = widget.selectTimetable;
+    if (callback != null) {
+      await callback(id);
+      return;
+    }
+    await ref.read(timetableRepositoryProvider).setCurrentSemester(id);
+  }
+
+  Future<void> _renameTimetable(String id, String name) async {
+    final callback = widget.renameTimetable;
+    if (callback != null) {
+      await callback(id, name);
+      return;
+    }
+    await ref.read(timetableRepositoryProvider).renameTimetable(id, name);
+  }
+
+  Future<void> _deleteTimetable(String id) async {
+    final callback = widget.deleteTimetable;
+    if (callback != null) {
+      await callback(id);
+      return;
+    }
+    await ref
+        .read(timetableRepositoryProvider)
+        .deleteTimetableAndSelectFallback(id);
+  }
+
+  Future<void> _addTimetable(
+    BuildContext sheetContext,
+    SemesterTimetable current,
+    TimetableAddMethod method,
+    String name,
+  ) async {
+    final callback = widget.createBlankTimetable;
+    final String id;
+    if (callback == null) {
+      final created = await ref
+          .read(timetableRepositoryProvider)
+          .createBlankTimetable(name: name, template: current.semester);
+      id = created.id;
+    } else {
+      id = await callback(name, current);
+    }
+    await _setCurrentTimetable(id);
+    if (sheetContext.mounted) {
+      Navigator.pop(sheetContext);
+    }
+    if (method == TimetableAddMethod.blank || !mounted) return;
+    await (widget.clearImportCookies ?? _clearWebViewCookies)();
+    if (mounted) {
+      unawaited(context.push('/import?target=$id&source=bitc'));
+    }
+  }
+
+  Future<void> _clearWebViewCookies() async {
+    await WebViewCookieManager().clearCookies();
+  }
+
   @override
   Widget build(BuildContext context) {
     final timetable = ref.watch(currentTimetableProvider);
+    final semesters = ref.watch(timetablesProvider);
     final today = ref.watch(currentDateProvider);
+    final current = timetable.value;
+    final currentName = current == null
+        ? '加载中'
+        : _timetableName(current.semester);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('课程表'),
+        title: _TimetableTitleButton(
+          timetableName: currentName,
+          enabled: current != null && semesters.hasValue,
+          onPressed: current == null || !semesters.hasValue
+              ? null
+              : () => _showTimetableSwitcher(current, semesters.requireValue),
+        ),
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
                 case 'import':
-                  context.push('/import');
+                  if (current != null) {
+                    context.push('/import?target=${current.semester.id}');
+                  }
                 case 'settings':
                   context.push('/settings');
               }
@@ -160,6 +289,59 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
         onPressed: () => context.push('/course/new'),
         icon: const Icon(Icons.add_rounded),
         label: const Text('添加课程'),
+      ),
+    );
+  }
+}
+
+String _timetableName(Semester semester) => semester.timetableName;
+
+class _TimetableTitleButton extends StatelessWidget {
+  const _TimetableTitleButton({
+    required this.timetableName,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  final String timetableName;
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: '切换课程表，当前为$timetableName',
+      excludeSemantics: true,
+      child: InkWell(
+        key: const ValueKey('timetable-title-button'),
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 240),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('课程表'),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    timetableName,
+                    key: const ValueKey('current-timetable-name'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                const Icon(Icons.arrow_drop_down_rounded),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -45,8 +45,13 @@ final appRouter = GoRouter(
     ),
     GoRoute(
       path: '/import',
-      pageBuilder: (context, state) =>
-          _adaptivePage(state: state, child: const ImportRoutePage()),
+      pageBuilder: (context, state) => _adaptivePage(
+        state: state,
+        child: ImportRoutePage(
+          targetSemesterId: state.uri.queryParameters['target'],
+          initialSource: state.uri.queryParameters['source'],
+        ),
+      ),
     ),
     GoRoute(
       path: '/settings',

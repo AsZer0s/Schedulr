@@ -1,15 +1,18 @@
 import 'dart:async';
 
 import 'package:drift/drift.dart' as drift;
+import 'package:uuid/uuid.dart';
 
 import '../../../core/storage/app_database.dart' as db;
 import '../../../core/time/week_set.dart';
 import '../domain/timetable_models.dart';
 
 class TimetableRepository {
-  TimetableRepository(this.database);
+  TimetableRepository(this.database, {String Function()? uuidGenerator})
+    : _uuidGenerator = uuidGenerator ?? const Uuid().v4;
 
   final db.AppDatabase database;
+  final String Function() _uuidGenerator;
 
   Future<void> upsertSemester(Semester semester) async {
     await database
@@ -18,32 +21,25 @@ class TimetableRepository {
   }
 
   Future<void> deleteSemester(String semesterId) async {
-    await database.transaction(() async {
-      await (database.delete(
-        database.periodDefinitions,
-      )..where((table) => table.semesterId.equals(semesterId))).go();
-      await _deleteCoursesForSemester(semesterId);
-      await (database.delete(
-        database.semesters,
-      )..where((table) => table.id.equals(semesterId))).go();
-    });
+    await database.transaction(() => _deleteSemesterGraph(semesterId));
+  }
+
+  Future<Semester?> getSemester(String semesterId) async {
+    final row = await (database.select(
+      database.semesters,
+    )..where((table) => table.id.equals(semesterId))).getSingleOrNull();
+    return row == null ? null : _semesterFromRow(row);
   }
 
   Future<List<Semester>> getSemesters() async {
     final query = database.select(database.semesters)
-      ..orderBy([
-        (table) => drift.OrderingTerm.desc(table.startDate),
-        (table) => drift.OrderingTerm.asc(table.name),
-      ]);
+      ..orderBy(_semesterOrdering);
     return (await query.get()).map(_semesterFromRow).toList();
   }
 
   Stream<List<Semester>> watchSemesters() {
     final query = database.select(database.semesters)
-      ..orderBy([
-        (table) => drift.OrderingTerm.desc(table.startDate),
-        (table) => drift.OrderingTerm.asc(table.name),
-      ]);
+      ..orderBy(_semesterOrdering);
     return query.watch().map(
       (rows) => rows.map(_semesterFromRow).toList(growable: false),
     );
@@ -61,19 +57,121 @@ class TimetableRepository {
   }
 
   Future<void> setCurrentSemester(String semesterId) async {
+    await switchCurrent(semesterId);
+  }
+
+  Future<void> switchCurrent(String semesterId) async {
     await database.transaction(() async {
+      if (!await _semesterExists(semesterId)) {
+        throw StateError('Semester not found: $semesterId');
+      }
+      await _selectOnlyCurrent(semesterId);
+    });
+  }
+
+  Future<Semester> createBlankTimetable({
+    required String name,
+    required Semester template,
+  }) async {
+    final timetableName = _validateTimetableName(name);
+    final newId = _uuidGenerator();
+    final created = template.copyWith(
+      id: newId,
+      timetableName: timetableName,
+      isCurrent: true,
+    );
+
+    await database.transaction(() async {
+      if (!await _semesterExists(template.id)) {
+        throw StateError('Template semester not found: ${template.id}');
+      }
+      final periods = await _periodsForSemester(template.id);
       await database
-          .update(database.semesters)
-          .write(const db.SemestersCompanion(isCurrent: drift.Value(false)));
-      await (database.update(database.semesters)
-            ..where((table) => table.id.equals(semesterId)))
-          .write(const db.SemestersCompanion(isCurrent: drift.Value(true)));
+          .into(database.semesters)
+          .insert(_semesterCompanion(created));
+      for (final period in periods) {
+        await database
+            .into(database.periodDefinitions)
+            .insert(
+              _periodCompanion(
+                period.copyWith(id: _uuidGenerator(), semesterId: newId),
+              ),
+            );
+      }
+      await _selectOnlyCurrent(newId);
+    });
+    return created;
+  }
+
+  Future<void> renameTimetable(String semesterId, String name) async {
+    final timetableName = _validateTimetableName(name);
+    await database.transaction(() async {
+      final updated =
+          await (database.update(
+            database.semesters,
+          )..where((table) => table.id.equals(semesterId))).write(
+            db.SemestersCompanion(timetableName: drift.Value(timetableName)),
+          );
+      if (updated != 1) {
+        throw StateError('Semester not found: $semesterId');
+      }
+    });
+  }
+
+  Future<Semester> deleteTimetableAndSelectFallback(String semesterId) async {
+    return database.transaction(() async {
+      final deleted = await getSemesterTimetable(semesterId);
+      if (deleted == null) {
+        throw StateError('Semester not found: $semesterId');
+      }
+      final wasCurrent = deleted.semester.isCurrent;
+      await _deleteSemesterGraph(semesterId);
+
+      final remaining = await getSemesters();
+      if (remaining.isEmpty) {
+        final newId = _uuidGenerator();
+        final replacement = deleted.semester.copyWith(
+          id: newId,
+          timetableName: '我的课表',
+          isCurrent: true,
+        );
+        await database
+            .into(database.semesters)
+            .insert(_semesterCompanion(replacement));
+        for (final period in deleted.periodDefinitions) {
+          await database
+              .into(database.periodDefinitions)
+              .insert(
+                _periodCompanion(
+                  period.copyWith(id: _uuidGenerator(), semesterId: newId),
+                ),
+              );
+        }
+        await _selectOnlyCurrent(newId);
+        return replacement;
+      }
+
+      if (wasCurrent) {
+        await _selectOnlyCurrent(remaining.first.id);
+        return remaining.first.copyWith(isCurrent: true);
+      }
+
+      final current = remaining.where((semester) => semester.isCurrent);
+      if (current.isNotEmpty) {
+        return current.first;
+      }
+      await _selectOnlyCurrent(remaining.first.id);
+      return remaining.first.copyWith(isCurrent: true);
     });
   }
 
   Future<void> upsertCourse(CourseWithSessions course) async {
     _validateCourseGraph(course);
     await database.transaction(() async {
+      if (!await _semesterExists(course.course.semesterId)) {
+        throw StateError('Semester not found: ${course.course.semesterId}');
+      }
+      await _validateStoredCourseIds(course);
       await database
           .into(database.courses)
           .insertOnConflictUpdate(_courseCompanion(course.course));
@@ -195,9 +293,25 @@ class TimetableRepository {
   }) async {
     _validateTimetable(timetable);
     await database.transaction(() async {
-      await database
-          .into(database.semesters)
-          .insertOnConflictUpdate(_semesterCompanion(timetable.semester));
+      final existingSemester = await getSemester(timetable.semester.id);
+      if (existingSemester == null) {
+        if (await _hasStoredIdsFromAnotherTimetable(timetable)) {
+          throw StateError('Imported ids belong to another timetable.');
+        }
+        await database
+            .into(database.semesters)
+            .insert(_semesterCompanion(timetable.semester));
+      } else {
+        await (database.update(database.semesters)
+              ..where((table) => table.id.equals(timetable.semester.id)))
+            .write(_semesterCompanion(timetable.semester));
+      }
+      for (final course in timetable.courses) {
+        await _validateStoredCourseIds(course);
+      }
+      for (final definition in timetable.periodDefinitions) {
+        await _validateStoredPeriodId(definition);
+      }
       if (replacePeriods) {
         await (database.delete(
               database.periodDefinitions,
@@ -231,6 +345,114 @@ class TimetableRepository {
           .into(database.courseSessions)
           .insert(_sessionCompanion(session));
     }
+  }
+
+  List<drift.OrderClauseGenerator<db.$SemestersTable>> get _semesterOrdering =>
+      [
+        (table) => drift.OrderingTerm.desc(table.startDate),
+        (table) => drift.OrderingTerm.asc(table.timetableName),
+        (table) => drift.OrderingTerm.asc(table.id),
+      ];
+
+  String _validateTimetableName(String name) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw ArgumentError.value(name, 'name', 'Must not be empty.');
+    }
+    return trimmed;
+  }
+
+  Future<bool> _semesterExists(String semesterId) async {
+    final row =
+        await (database.selectOnly(database.semesters)
+              ..addColumns([database.semesters.id])
+              ..where(database.semesters.id.equals(semesterId)))
+            .getSingleOrNull();
+    return row != null;
+  }
+
+  Future<bool> _hasStoredIdsFromAnotherTimetable(
+    SemesterTimetable timetable,
+  ) async {
+    for (final course in timetable.courses) {
+      final row = await (database.select(
+        database.courses,
+      )..where((table) => table.id.equals(course.course.id))).getSingleOrNull();
+      if (row != null) return true;
+      for (final session in course.sessions) {
+        final sessionRow = await (database.select(
+          database.courseSessions,
+        )..where((table) => table.id.equals(session.id))).getSingleOrNull();
+        if (sessionRow != null) return true;
+      }
+    }
+    for (final period in timetable.periodDefinitions) {
+      final row = await (database.select(
+        database.periodDefinitions,
+      )..where((table) => table.id.equals(period.id))).getSingleOrNull();
+      if (row != null) return true;
+    }
+    return false;
+  }
+
+  Future<void> _validateStoredCourseIds(CourseWithSessions course) async {
+    final storedCourse = await (database.select(
+      database.courses,
+    )..where((table) => table.id.equals(course.course.id))).getSingleOrNull();
+    if (storedCourse != null &&
+        storedCourse.semesterId != course.course.semesterId) {
+      throw StateError('Course id belongs to another timetable.');
+    }
+    for (final session in course.sessions) {
+      final storedSession = await (database.select(
+        database.courseSessions,
+      )..where((table) => table.id.equals(session.id))).getSingleOrNull();
+      if (storedSession != null && storedSession.courseId != session.courseId) {
+        throw StateError('Course session id belongs to another course.');
+      }
+    }
+  }
+
+  Future<void> _validateStoredPeriodId(PeriodDefinition definition) async {
+    final storedPeriod = await (database.select(
+      database.periodDefinitions,
+    )..where((table) => table.id.equals(definition.id))).getSingleOrNull();
+    if (storedPeriod != null &&
+        storedPeriod.semesterId != definition.semesterId) {
+      throw StateError('Period definition id belongs to another timetable.');
+    }
+  }
+
+  Future<void> _selectOnlyCurrent(String semesterId) async {
+    await database
+        .update(database.semesters)
+        .write(const db.SemestersCompanion(isCurrent: drift.Value(false)));
+    final updated =
+        await (database.update(database.semesters)
+              ..where((table) => table.id.equals(semesterId)))
+            .write(const db.SemestersCompanion(isCurrent: drift.Value(true)));
+    if (updated != 1) {
+      throw StateError('Semester not found: $semesterId');
+    }
+  }
+
+  Future<List<PeriodDefinition>> _periodsForSemester(String semesterId) async {
+    final rows =
+        await (database.select(database.periodDefinitions)
+              ..where((table) => table.semesterId.equals(semesterId))
+              ..orderBy([(table) => drift.OrderingTerm.asc(table.period)]))
+            .get();
+    return rows.map(_periodFromRow).toList(growable: false);
+  }
+
+  Future<void> _deleteSemesterGraph(String semesterId) async {
+    await (database.delete(
+      database.periodDefinitions,
+    )..where((table) => table.semesterId.equals(semesterId))).go();
+    await _deleteCoursesForSemester(semesterId);
+    await (database.delete(
+      database.semesters,
+    )..where((table) => table.id.equals(semesterId))).go();
   }
 
   Future<void> _deleteCoursesForSemester(String semesterId) async {
@@ -353,6 +575,7 @@ db.SemestersCompanion _semesterCompanion(Semester semester) {
     academicYear: semester.academicYear,
     term: semester.term,
     name: semester.name,
+    timetableName: drift.Value(semester.timetableName),
     startDate: semester.startDate,
     teachingWeeks: semester.teachingWeeks,
     timeZone: drift.Value(semester.timeZone),
@@ -405,6 +628,7 @@ Semester _semesterFromRow(db.Semester row) {
     academicYear: row.academicYear,
     term: row.term,
     name: row.name,
+    timetableName: row.timetableName,
     startDate: row.startDate,
     teachingWeeks: row.teachingWeeks,
     timeZone: row.timeZone,

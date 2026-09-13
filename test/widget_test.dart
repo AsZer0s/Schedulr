@@ -11,6 +11,7 @@ void main() {
       academicYear: '2026-2027',
       term: '1',
       name: '测试学期',
+      timetableName: '测试学期',
       startDate: DateTime(2026, 9, 7),
       teachingWeeks: 20,
       isCurrent: true,

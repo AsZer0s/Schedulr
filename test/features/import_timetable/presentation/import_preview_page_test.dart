@@ -21,6 +21,7 @@ void main() {
             items: const [],
           ),
           sourceName: '虚构教务',
+          targetTimetableName: '测试课表',
           timingProfile: ImportedTimingProfile(
             id: 'profile-0',
             name: '星河校区（虚构）',
@@ -31,6 +32,7 @@ void main() {
       ),
     );
 
+    expect(find.text('导入到：测试课表'), findsOneWidget);
     expect(find.textContaining('上午 4 节'), findsOneWidget);
     expect(find.textContaining('下午 4 节'), findsOneWidget);
     expect(find.textContaining('晚上 2 节'), findsOneWidget);

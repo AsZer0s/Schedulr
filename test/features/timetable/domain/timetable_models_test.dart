@@ -17,6 +17,45 @@ void main() {
     expect(() => first.weeks.add(7), throwsUnsupportedError);
   });
 
+  test('semester timetable name is required, trimmed, and value-based', () {
+    final semester = Semester(
+      id: 'semester',
+      academicYear: '2026-2027',
+      term: '1',
+      name: '第一学期',
+      timetableName: '  主课表  ',
+      startDate: DateTime(2026, 9, 7, 12),
+      teachingWeeks: 20,
+    );
+
+    expect(semester.timetableName, '主课表');
+    expect(
+      semester.copyWith(),
+      Semester(
+        id: 'semester',
+        academicYear: '2026-2027',
+        term: '1',
+        name: '第一学期',
+        timetableName: '主课表',
+        startDate: DateTime(2026, 9, 7),
+        teachingWeeks: 20,
+      ),
+    );
+    expect(semester.toString(), contains('timetableName: 主课表'));
+    expect(
+      () => Semester(
+        id: 'semester',
+        academicYear: '2026-2027',
+        term: '1',
+        name: '第一学期',
+        timetableName: '   ',
+        startDate: DateTime(2026, 9, 7),
+        teachingWeeks: 20,
+      ),
+      throwsArgumentError,
+    );
+  });
+
   test('copyWith can clear nullable course fields', () {
     final course = Course(
       id: 'course',

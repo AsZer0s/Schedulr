@@ -76,6 +76,7 @@ class _DemoImportPageState extends State<DemoImportPage> {
           builder: (context) => ImportPreviewPage(
             preview: preview,
             sourceName: timetable.sourceName,
+            targetTimetableName: '当前课表',
             onCommit: () async {
               await widget.onCommit(ImportCommitRequest(preview: preview));
               if (!context.mounted) return;

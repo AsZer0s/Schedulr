@@ -214,6 +214,7 @@ SemesterTimetable _initialTimetable() {
     academicYear: '2026-2027',
     term: '1',
     name: '第一学期',
+    timetableName: '第一学期',
     startDate: DateTime(2026, 9, 7),
     teachingWeeks: 20,
     isCurrent: true,

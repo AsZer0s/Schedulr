@@ -17,6 +17,7 @@ class AppBootstrapper {
       academicYear: '2026-2027',
       term: '1',
       name: '2026-2027 第一学期',
+      timetableName: '我的课表',
       startDate: DateTime(2026, 9, 7),
       teachingWeeks: 20,
       isCurrent: true,

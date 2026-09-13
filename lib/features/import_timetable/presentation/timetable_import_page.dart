@@ -11,11 +11,15 @@ class TimetableImportPage extends StatefulWidget {
   const TimetableImportPage({
     required this.existingEntries,
     required this.onCommit,
+    required this.targetTimetableName,
+    this.initialSource = ImportSourceChoice.bitc,
     super.key,
   });
 
   final List<ExistingTimetableEntry> existingEntries;
   final Future<void> Function(ImportCommitRequest request) onCommit;
+  final String targetTimetableName;
+  final ImportSourceChoice initialSource;
 
   @override
   State<TimetableImportPage> createState() => _TimetableImportPageState();
@@ -26,11 +30,17 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   final _passwordController = TextEditingController(text: 'demo');
   final _academicYearController = TextEditingController(text: '2026-2027');
 
-  ImportSourceChoice _source = ImportSourceChoice.bitc;
+  late ImportSourceChoice _source;
   ImportStrategy _strategy = ImportStrategy.merge;
   int _term = 1;
   bool _isLoading = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _source = widget.initialSource;
+  }
 
   @override
   void dispose() {
@@ -82,6 +92,7 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
           builder: (context) => ImportPreviewPage(
             preview: preview,
             sourceName: timetable.sourceName,
+            targetTimetableName: widget.targetTimetableName,
             timingProfile: selectedProfile,
             hasCalendarUpdate: timetable.calendar != null,
             onCommit: () async {
@@ -240,6 +251,19 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
         child: ListView(
           padding: const EdgeInsets.all(20),
           children: [
+            Card(
+              color: theme.colorScheme.primaryContainer,
+              child: ListTile(
+                leading: const Icon(Icons.table_chart_outlined),
+                title: const Text('导入到'),
+                subtitle: Text(
+                  widget.targetTimetableName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             SegmentedButton<ImportSourceChoice>(
               segments: const [
                 ButtonSegment(

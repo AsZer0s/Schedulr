@@ -6,6 +6,7 @@ class ImportPreviewPage extends StatelessWidget {
   const ImportPreviewPage({
     required this.preview,
     required this.sourceName,
+    required this.targetTimetableName,
     required this.onCommit,
     this.timingProfile,
     this.hasCalendarUpdate = false,
@@ -14,6 +15,7 @@ class ImportPreviewPage extends StatelessWidget {
 
   final ImportPreview preview;
   final String sourceName;
+  final String targetTimetableName;
   final Future<void> Function() onCommit;
   final ImportedTimingProfile? timingProfile;
   final bool hasCalendarUpdate;
@@ -28,6 +30,7 @@ class ImportPreviewPage extends StatelessWidget {
             _ImportSummary(
               preview: preview,
               sourceName: sourceName,
+              targetTimetableName: targetTimetableName,
               timingProfile: timingProfile,
             ),
             if (preview.issues.isNotEmpty)
@@ -100,11 +103,13 @@ class _ImportSummary extends StatelessWidget {
   const _ImportSummary({
     required this.preview,
     required this.sourceName,
+    required this.targetTimetableName,
     this.timingProfile,
   });
 
   final ImportPreview preview;
   final String sourceName;
+  final String targetTimetableName;
   final ImportedTimingProfile? timingProfile;
 
   @override
@@ -116,6 +121,15 @@ class _ImportSummary extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(sourceName, style: theme.textTheme.titleLarge),
+          const SizedBox(height: 4),
+          Text(
+            '导入到：$targetTimetableName',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: theme.colorScheme.primary,
+            ),
+          ),
           const SizedBox(height: 4),
           Text(
             preview.strategy == ImportStrategy.merge
