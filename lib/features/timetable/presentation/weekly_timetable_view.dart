@@ -17,6 +17,8 @@ class WeeklyTimetableView extends StatefulWidget {
     required this.teachingWeek,
     this.showWeekend = true,
     this.onCourseTap,
+    this.onPreviousWeek,
+    this.onNextWeek,
     this.today,
     this.height = 600,
     this.dayWidth = 120,
@@ -79,6 +81,8 @@ class WeeklyTimetableView extends StatefulWidget {
   final int teachingWeek;
   final bool showWeekend;
   final CourseSessionTapCallback? onCourseTap;
+  final VoidCallback? onPreviousWeek;
+  final VoidCallback? onNextWeek;
   final DateTime? today;
   final double height;
 
@@ -107,6 +111,8 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
   final ScrollController _gridVerticalController = ScrollController();
   bool _synchronizingScroll = false;
   bool _verticalClampScheduled = false;
+  double _horizontalDragDistance = 0;
+  double _gestureWidth = 0;
 
   @override
   void initState() {
@@ -192,6 +198,46 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
     });
   }
 
+  void _startHorizontalDrag(DragStartDetails details) {
+    _horizontalDragDistance = 0;
+    _gestureWidth = context.size?.width ?? 0;
+  }
+
+  void _updateHorizontalDrag(DragUpdateDetails details) {
+    _horizontalDragDistance += details.primaryDelta ?? 0;
+  }
+
+  void _endHorizontalDrag(DragEndDetails details) {
+    final distance = _horizontalDragDistance;
+    final velocity = details.primaryVelocity ?? 0;
+    final distanceThreshold = math.min(72.0, _gestureWidth * 0.18);
+    final distanceQualified = distance.abs() >= distanceThreshold;
+    final flingQualified = velocity.abs() >= 600 && distance.abs() >= 20;
+    _cancelHorizontalDrag();
+    if (!distanceQualified && !flingQualified) return;
+    if (distance < 0) {
+      widget.onNextWeek?.call();
+    } else if (distance > 0) {
+      widget.onPreviousWeek?.call();
+    }
+  }
+
+  void _cancelHorizontalDrag() {
+    _horizontalDragDistance = 0;
+    _gestureWidth = 0;
+  }
+
+  Widget _withWeekSwipe(Widget child) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragStart: _startHorizontalDrag,
+      onHorizontalDragUpdate: _updateHorizontalDrag,
+      onHorizontalDragEnd: _endHorizontalDrag,
+      onHorizontalDragCancel: _cancelHorizontalDrag,
+      child: child,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final weekdays = widget.showWeekend ? 7 : 5;
@@ -210,13 +256,15 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
           scheduledEntries.any(
             (entry) => entry.session.weekday >= DateTime.saturday,
           );
-      return SizedBox(
-        height: widget.height,
-        child: TimetableEmptyState(
-          title: weekendOnly ? '工作日暂无课程' : '本周暂无课程',
-          message: weekendOnly
-              ? '本周课程仅安排在周末，开启“显示周末”后可查看。'
-              : '当前教学周没有可显示的课程安排。',
+      return _withWeekSwipe(
+        SizedBox(
+          height: widget.height,
+          child: TimetableEmptyState(
+            title: weekendOnly ? '工作日暂无课程' : '本周暂无课程',
+            message: weekendOnly
+                ? '本周课程仅安排在周末，开启“显示周末”后可查看。'
+                : '当前教学周没有可显示的课程安排。',
+          ),
         ),
       );
     }
@@ -227,9 +275,11 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
       periods: periods,
     );
     if (resolution.hasConfigurationError) {
-      return SizedBox(
-        height: widget.height,
-        child: const TimetableConfigurationErrorState(),
+      return _withWeekSwipe(
+        SizedBox(
+          height: widget.height,
+          child: const TimetableConfigurationErrorState(),
+        ),
       );
     }
 
@@ -248,225 +298,234 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
       (date) => DateUtils.isSameDay(date, currentDay),
     );
 
-    return SizedBox(
-      height: widget.height,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final availableWidth = constraints.hasBoundedWidth
-              ? constraints.maxWidth
-              : MediaQuery.sizeOf(context).width;
-          final availableHeight = constraints.hasBoundedHeight
-              ? constraints.maxHeight
-              : widget.height;
-          final bodyViewportHeight = math.max(
-            0.0,
-            availableHeight - _headerHeight - 1,
-          );
-          final preferredAxisWidth = math.min(
-            widget.periodAxisWidth,
-            math.max(_minimumAxisWidth, availableWidth * 0.16),
-          );
-          final axisWidth = math.min(
-            preferredAxisWidth,
-            math.max(0.0, availableWidth - 1.01),
-          );
-          final gridViewportWidth = math.max(
-            0.01,
-            availableWidth - axisWidth - 1,
-          );
-          final effectiveDayWidth = gridViewportWidth / weekdays;
-          final gridWidth = gridViewportWidth;
-          final groupHeaderCount = _nonEmptyGroupCount(periods);
-          final textScale = _effectiveTextScale(context);
-          final minimumRowHeight = _baseMinimumRowHeight + (textScale - 1) * 26;
-          final maximumRowHeight = math.max(
-            minimumRowHeight,
-            widget.periodRowHeight,
-          );
-          final availableRowsHeight = math.max(
-            0.0,
-            bodyViewportHeight - groupHeaderCount * _groupHeaderHeight,
-          );
-          final fittingRowHeight = periods.isEmpty
-              ? maximumRowHeight
-              : availableRowsHeight / periods.length;
-          final rowHeight = fittingRowHeight.clamp(
-            minimumRowHeight,
-            maximumRowHeight,
-          );
-          final metrics = _TimetableVerticalMetrics(
-            periods: periods,
-            rowHeight: rowHeight,
-            groupHeaderHeight: _groupHeaderHeight,
-          );
-          final canScrollHorizontally = gridWidth - gridViewportWidth > 0.01;
-          final canScrollVertically =
-              metrics.totalHeight - bodyViewportHeight > 0.01;
-          final horizontalPhysics = canScrollHorizontally
-              ? const ClampingScrollPhysics()
-              : const NeverScrollableScrollPhysics();
-          final verticalPhysics = canScrollVertically
-              ? const ClampingScrollPhysics()
-              : const NeverScrollableScrollPhysics();
-
-          _scheduleVerticalScrollClamp();
-
-          final axisScrollView = SingleChildScrollView(
-            key: WeeklyTimetableView.axisVerticalScrollKey,
-            controller: _axisVerticalController,
-            physics: verticalPhysics,
-            child: _PeriodAxis(
-              periods: periods,
-              metrics: metrics,
-              width: axisWidth,
-            ),
-          );
-          Widget gridVerticalScrollView = SingleChildScrollView(
-            key: WeeklyTimetableView.gridVerticalScrollKey,
-            controller: _gridVerticalController,
-            physics: verticalPhysics,
-            child: SizedBox(
-              key: WeeklyTimetableView.gridBodyKey,
-              width: gridWidth,
-              height: metrics.totalHeight,
-              child: Stack(
-                clipBehavior: Clip.hardEdge,
-                children: [
-                  if (todayIndex >= 0)
-                    Positioned(
-                      key: WeeklyTimetableView.todayColumnKey,
-                      left: todayIndex * effectiveDayWidth,
-                      top: 0,
-                      height: metrics.totalHeight,
-                      width: effectiveDayWidth,
-                      child: Semantics(
-                        container: true,
-                        label: '今天课程列',
-                        child: ColoredBox(
-                          color: Theme.of(context).colorScheme.primaryContainer
-                              .withValues(alpha: 0.32),
-                        ),
-                      ),
-                    ),
-                  for (final header in metrics.groupHeaders)
-                    Positioned(
-                      key: WeeklyTimetableView.groupGridHeaderKey(header.group),
-                      left: 0,
-                      right: 0,
-                      top: header.top,
-                      height: header.bottom - header.top,
-                      child: ColoredBox(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                      ),
-                    ),
-                  Positioned.fill(
-                    child: CustomPaint(
-                      painter: _TimetableGridPainter(
-                        weekdays: weekdays,
-                        dayWidth: effectiveDayWidth,
-                        metrics: metrics,
-                        lineColor: Theme.of(context).dividerColor,
-                        separatorColor: Theme.of(context)
-                            .colorScheme
-                            .surfaceContainerHighest,
-                      ),
-                    ),
-                  ),
-                  for (final placement in placements)
-                    _CourseCardPositioned(
-                      placement: placement,
-                      teachingWeek: widget.teachingWeek,
-                      dayWidth: effectiveDayWidth,
-                      metrics: metrics,
-                      onTap: widget.onCourseTap,
-                    ),
-                ],
-              ),
-            ),
-          );
-          if (canScrollVertically) {
-            gridVerticalScrollView = Scrollbar(
-              controller: _gridVerticalController,
-              thumbVisibility: true,
-              child: gridVerticalScrollView,
+    return _withWeekSwipe(
+      SizedBox(
+        height: widget.height,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final availableWidth = constraints.hasBoundedWidth
+                ? constraints.maxWidth
+                : MediaQuery.sizeOf(context).width;
+            final availableHeight = constraints.hasBoundedHeight
+                ? constraints.maxHeight
+                : widget.height;
+            final bodyViewportHeight = math.max(
+              0.0,
+              availableHeight - _headerHeight - 1,
             );
-          }
+            final preferredAxisWidth = math.min(
+              widget.periodAxisWidth,
+              math.max(_minimumAxisWidth, availableWidth * 0.16),
+            );
+            final axisWidth = math.min(
+              preferredAxisWidth,
+              math.max(0.0, availableWidth - 1.01),
+            );
+            final gridViewportWidth = math.max(
+              0.01,
+              availableWidth - axisWidth - 1,
+            );
+            final effectiveDayWidth = gridViewportWidth / weekdays;
+            final gridWidth = gridViewportWidth;
+            final groupHeaderCount = _nonEmptyGroupCount(periods);
+            final textScale = _effectiveTextScale(context);
+            final minimumRowHeight =
+                _baseMinimumRowHeight + (textScale - 1) * 26;
+            final maximumRowHeight = math.max(
+              minimumRowHeight,
+              widget.periodRowHeight,
+            );
+            final availableRowsHeight = math.max(
+              0.0,
+              bodyViewportHeight - groupHeaderCount * _groupHeaderHeight,
+            );
+            final fittingRowHeight = periods.isEmpty
+                ? maximumRowHeight
+                : availableRowsHeight / periods.length;
+            final rowHeight = fittingRowHeight.clamp(
+              minimumRowHeight,
+              maximumRowHeight,
+            );
+            final metrics = _TimetableVerticalMetrics(
+              periods: periods,
+              rowHeight: rowHeight,
+              groupHeaderHeight: _groupHeaderHeight,
+            );
+            final canScrollHorizontally = gridWidth - gridViewportWidth > 0.01;
+            final canScrollVertically =
+                metrics.totalHeight - bodyViewportHeight > 0.01;
+            final horizontalPhysics = canScrollHorizontally
+                ? const ClampingScrollPhysics()
+                : const NeverScrollableScrollPhysics();
+            final verticalPhysics = canScrollVertically
+                ? const ClampingScrollPhysics()
+                : const NeverScrollableScrollPhysics();
 
-          return DecoratedBox(
-            decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface,
-              border: Border.all(color: Theme.of(context).dividerColor),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(11),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: axisWidth,
-                    child: Column(
-                      children: [
-                        const SizedBox(height: _headerHeight),
-                        Divider(
-                          height: 1,
-                          color: Theme.of(context).dividerColor,
-                        ),
-                        Expanded(child: axisScrollView),
-                      ],
-                    ),
-                  ),
-                  VerticalDivider(
-                    width: 1,
-                    thickness: 1,
-                    color: Theme.of(context).dividerColor,
-                  ),
-                  Expanded(
-                    child: Column(
-                      children: [
-                        SizedBox(
-                          height: _headerHeight,
-                          child: SingleChildScrollView(
-                            key: WeeklyTimetableView.headerHorizontalScrollKey,
-                            controller: _headerHorizontalController,
-                            scrollDirection: Axis.horizontal,
-                            physics: horizontalPhysics,
-                            child: _WeekdayHeader(
-                              dates: dates,
-                              dayWidth: effectiveDayWidth,
-                              todayIndex: todayIndex,
-                            ),
+            _scheduleVerticalScrollClamp();
+
+            final axisScrollView = SingleChildScrollView(
+              key: WeeklyTimetableView.axisVerticalScrollKey,
+              controller: _axisVerticalController,
+              physics: verticalPhysics,
+              child: _PeriodAxis(
+                periods: periods,
+                metrics: metrics,
+                width: axisWidth,
+              ),
+            );
+            Widget gridVerticalScrollView = SingleChildScrollView(
+              key: WeeklyTimetableView.gridVerticalScrollKey,
+              controller: _gridVerticalController,
+              physics: verticalPhysics,
+              child: SizedBox(
+                key: WeeklyTimetableView.gridBodyKey,
+                width: gridWidth,
+                height: metrics.totalHeight,
+                child: Stack(
+                  clipBehavior: Clip.hardEdge,
+                  children: [
+                    if (todayIndex >= 0)
+                      Positioned(
+                        key: WeeklyTimetableView.todayColumnKey,
+                        left: todayIndex * effectiveDayWidth,
+                        top: 0,
+                        height: metrics.totalHeight,
+                        width: effectiveDayWidth,
+                        child: Semantics(
+                          container: true,
+                          label: '今天课程列',
+                          child: ColoredBox(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .primaryContainer
+                                .withValues(alpha: 0.32),
                           ),
                         ),
-                        Divider(
-                          height: 1,
-                          color: Theme.of(context).dividerColor,
+                      ),
+                    for (final header in metrics.groupHeaders)
+                      Positioned(
+                        key: WeeklyTimetableView.groupGridHeaderKey(
+                          header.group,
                         ),
-                        Expanded(
-                          child: Scrollbar(
-                            controller: _gridHorizontalController,
-                            thumbVisibility: canScrollHorizontally,
+                        left: 0,
+                        right: 0,
+                        top: header.top,
+                        height: header.bottom - header.top,
+                        child: ColoredBox(
+                          color: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                        ),
+                      ),
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _TimetableGridPainter(
+                          weekdays: weekdays,
+                          dayWidth: effectiveDayWidth,
+                          metrics: metrics,
+                          lineColor: Theme.of(context).dividerColor,
+                          separatorColor: Theme.of(context)
+                              .colorScheme
+                              .surfaceContainerHighest,
+                        ),
+                      ),
+                    ),
+                    for (final placement in placements)
+                      _CourseCardPositioned(
+                        placement: placement,
+                        teachingWeek: widget.teachingWeek,
+                        dayWidth: effectiveDayWidth,
+                        metrics: metrics,
+                        onTap: widget.onCourseTap,
+                      ),
+                  ],
+                ),
+              ),
+            );
+            if (canScrollVertically) {
+              gridVerticalScrollView = Scrollbar(
+                controller: _gridVerticalController,
+                thumbVisibility: true,
+                child: gridVerticalScrollView,
+              );
+            }
+
+            return DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                border: Border.all(color: Theme.of(context).dividerColor),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(11),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: axisWidth,
+                      child: Column(
+                        children: [
+                          const SizedBox(height: _headerHeight),
+                          Divider(
+                            height: 1,
+                            color: Theme.of(context).dividerColor,
+                          ),
+                          Expanded(child: axisScrollView),
+                        ],
+                      ),
+                    ),
+                    VerticalDivider(
+                      width: 1,
+                      thickness: 1,
+                      color: Theme.of(context).dividerColor,
+                    ),
+                    Expanded(
+                      child: Column(
+                        children: [
+                          SizedBox(
+                            height: _headerHeight,
                             child: SingleChildScrollView(
-                              key: WeeklyTimetableView.gridHorizontalScrollKey,
-                              controller: _gridHorizontalController,
+                              key:
+                                  WeeklyTimetableView.headerHorizontalScrollKey,
+                              controller: _headerHorizontalController,
                               scrollDirection: Axis.horizontal,
                               physics: horizontalPhysics,
-                              child: SizedBox(
-                                width: gridWidth,
-                                child: gridVerticalScrollView,
+                              child: _WeekdayHeader(
+                                dates: dates,
+                                dayWidth: effectiveDayWidth,
+                                todayIndex: todayIndex,
                               ),
                             ),
                           ),
-                        ),
-                      ],
+                          Divider(
+                            height: 1,
+                            color: Theme.of(context).dividerColor,
+                          ),
+                          Expanded(
+                            child: Scrollbar(
+                              controller: _gridHorizontalController,
+                              thumbVisibility: canScrollHorizontally,
+                              child: SingleChildScrollView(
+                                key:
+                                    WeeklyTimetableView.gridHorizontalScrollKey,
+                                controller: _gridHorizontalController,
+                                scrollDirection: Axis.horizontal,
+                                physics: horizontalPhysics,
+                                child: SizedBox(
+                                  width: gridWidth,
+                                  child: gridVerticalScrollView,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

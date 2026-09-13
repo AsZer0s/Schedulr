@@ -943,6 +943,182 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('左滑和右滑分别触发下一周与上一周', (tester) async {
+      var previousCount = 0;
+      var nextCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable([
+          _course(
+            id: 'swipe',
+            name: '滑动课程',
+            sessions: [
+              _session(id: 'swipe-session', courseId: 'swipe', weeks: {1}),
+            ],
+          ),
+        ]),
+        teachingWeek: 1,
+        onPreviousWeek: () => previousCount++,
+        onNextWeek: () => nextCount++,
+      );
+
+      await tester.drag(
+        find.byType(WeeklyTimetableView),
+        const Offset(-120, 0),
+      );
+      await tester.pump();
+      await tester.drag(find.byType(WeeklyTimetableView), const Offset(120, 0));
+      await tester.pump();
+
+      expect(nextCount, 1);
+      expect(previousCount, 1);
+    });
+
+    testWidgets('空周的大面积空态也可以滑动切周', (tester) async {
+      var nextCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable(const []),
+        teachingWeek: 1,
+        onNextWeek: () => nextCount++,
+      );
+
+      await tester.drag(
+        find.byType(WeeklyTimetableView),
+        const Offset(-120, 0),
+      );
+      await tester.pump();
+
+      expect(nextCount, 1);
+      expect(find.byType(TimetableEmptyState), findsOneWidget);
+    });
+
+    testWidgets('短距离水平抖动不切周，纵向滚动不切周', (tester) async {
+      var nextCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable([
+          _course(
+            id: 'scroll',
+            name: '滚动课程',
+            sessions: [
+              _session(id: 'scroll-session', courseId: 'scroll', weeks: {1}),
+            ],
+          ),
+        ], periodDefinitions: _periods(12)),
+        teachingWeek: 1,
+        width: 320,
+        surfaceHeight: 400,
+        viewHeight: 340,
+        onNextWeek: () => nextCount++,
+      );
+
+      await tester.drag(find.byType(WeeklyTimetableView), const Offset(-12, 0));
+      await tester.pump();
+      await tester.drag(
+        find.byKey(WeeklyTimetableView.gridVerticalScrollKey),
+        const Offset(0, -120),
+      );
+      await tester.pumpAndSettle();
+
+      expect(nextCount, 0);
+      expect(_verticalPosition(tester).pixels, greaterThan(0));
+    });
+
+    testWidgets('边界没有对应回调时滑动不改变状态', (tester) async {
+      var callbackCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable([
+          _course(
+            id: 'boundary',
+            name: '边界课程',
+            sessions: [
+              _session(
+                id: 'boundary-session',
+                courseId: 'boundary',
+                weeks: {1},
+              ),
+            ],
+          ),
+        ]),
+        teachingWeek: 1,
+        onNextWeek: () => callbackCount++,
+      );
+
+      await tester.drag(find.byType(WeeklyTimetableView), const Offset(120, 0));
+      await tester.pump();
+
+      expect(callbackCount, 0);
+    });
+
+    testWidgets('配置错误状态也可以滑动切周', (tester) async {
+      var nextCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable([
+          _course(
+            id: 'broken-swipe',
+            name: '配置错误课程',
+            sessions: [
+              _session(
+                id: 'broken-swipe-session',
+                courseId: 'broken-swipe',
+                weeks: {1},
+                startPeriod: 12,
+                endPeriod: 12,
+              ),
+            ],
+          ),
+        ], periodDefinitions: _periods(8)),
+        teachingWeek: 1,
+        onNextWeek: () => nextCount++,
+      );
+
+      await tester.drag(
+        find.byType(WeeklyTimetableView),
+        const Offset(-120, 0),
+      );
+      await tester.pump();
+
+      expect(nextCount, 1);
+    });
+
+    testWidgets('课程卡上横向拖动切周且不触发课程点击', (tester) async {
+      var courseTapCount = 0;
+      var nextCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable([
+          _course(
+            id: 'card-swipe',
+            name: '卡片滑动',
+            sessions: [
+              _session(
+                id: 'card-swipe-session',
+                courseId: 'card-swipe',
+                weeks: {1},
+                startPeriod: 1,
+                endPeriod: 2,
+              ),
+            ],
+          ),
+        ]),
+        teachingWeek: 1,
+        onCourseTap: (_, _) => courseTapCount++,
+        onNextWeek: () => nextCount++,
+      );
+
+      await tester.drag(
+        find.byKey(const ValueKey<String>('course-session-card-swipe-session')),
+        const Offset(-120, 0),
+      );
+      await tester.pump();
+
+      expect(nextCount, 1);
+      expect(courseTapCount, 0);
+    });
+
     testWidgets('320 宽冲突课程不溢出且两张卡均可点击', (tester) async {
       final firstCourse = _course(
         id: 'conflict-a',
@@ -1056,6 +1232,8 @@ Future<void> _pumpView(
   required int teachingWeek,
   bool showWeekend = true,
   CourseSessionTapCallback? onCourseTap,
+  VoidCallback? onPreviousWeek,
+  VoidCallback? onNextWeek,
   DateTime? today,
   double width = 800,
   double surfaceHeight = 700,
@@ -1074,6 +1252,8 @@ Future<void> _pumpView(
             teachingWeek: teachingWeek,
             showWeekend: showWeekend,
             onCourseTap: onCourseTap,
+            onPreviousWeek: onPreviousWeek,
+            onNextWeek: onNextWeek,
             today: today,
             height: viewHeight,
           ),

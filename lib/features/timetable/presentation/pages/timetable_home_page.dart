@@ -277,6 +277,12 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
                       today: today,
                       height: constraints.maxHeight,
                       onCourseTap: _openCourse,
+                      onPreviousWeek: week > 1
+                          ? () => _selectWeek(semester, today, -1)
+                          : null,
+                      onNextWeek: week < semester.teachingWeeks
+                          ? () => _selectWeek(semester, today, 1)
+                          : null,
                     ),
                   ),
                 ),

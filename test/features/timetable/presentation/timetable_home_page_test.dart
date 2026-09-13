@@ -375,6 +375,49 @@ void main() {
       }
     });
 
+    testWidgets('左右滑切周并保持显式选择，点击标题恢复跟随今天', (tester) async {
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 16),
+        initialTimetable: _timetable(),
+      );
+      addTearDown(harness.dispose);
+
+      await tester.drag(
+        find.byType(WeeklyTimetableView),
+        const Offset(-120, 0),
+      );
+      await tester.pump();
+      expect(find.text('第 3 周'), findsOneWidget);
+      expect(find.textContaining('回到本周'), findsOneWidget);
+
+      await tester.drag(find.byType(WeeklyTimetableView), const Offset(120, 0));
+      await tester.pump();
+      expect(find.text('第 2 周'), findsOneWidget);
+      expect(find.textContaining('回到本周'), findsOneWidget);
+      expect(find.text('第 2 周 · 今天'), findsNothing);
+
+      await tester.tap(find.text('第 2 周'));
+      await tester.pump();
+      expect(find.text('第 2 周 · 今天'), findsOneWidget);
+    });
+
+    testWidgets('第1周边界右滑不会退出跟随今天', (tester) async {
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 8),
+        initialTimetable: _timetable(),
+      );
+      addTearDown(harness.dispose);
+
+      expect(find.text('第 1 周 · 今天'), findsOneWidget);
+      await tester.drag(find.byType(WeeklyTimetableView), const Offset(120, 0));
+      await tester.pump();
+
+      expect(find.text('第 1 周 · 今天'), findsOneWidget);
+      expect(find.textContaining('回到本周'), findsNothing);
+    });
+
     testWidgets('左右切周创建显式选择，点击中间恢复跟随今天', (tester) async {
       final harness = await _pumpHome(
         tester,
