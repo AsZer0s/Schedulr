@@ -18,6 +18,17 @@ abstract final class AppTheme {
       useMaterial3: true,
       brightness: brightness,
       colorScheme: colorScheme,
+      cupertinoOverrideTheme: CupertinoThemeData(
+        brightness: brightness,
+        primaryColor: colorScheme.primary,
+        primaryContrastingColor: colorScheme.onPrimary,
+        barBackgroundColor: colorScheme.surface.withValues(alpha: 0.94),
+        scaffoldBackgroundColor: colorScheme.surface,
+        textTheme: CupertinoTextThemeData(
+          primaryColor: colorScheme.primary,
+          textStyle: TextStyle(color: colorScheme.onSurface),
+        ),
+      ),
       scaffoldBackgroundColor: colorScheme.surface,
       appBarTheme: AppBarTheme(
         centerTitle: false,

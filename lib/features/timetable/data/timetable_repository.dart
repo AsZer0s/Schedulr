@@ -69,6 +69,67 @@ class TimetableRepository {
     });
   }
 
+  Future<Semester> createInitialTimetable({
+    required String timetableName,
+    required String academicYear,
+    required int term,
+    required DateTime startDate,
+    required int teachingWeeks,
+  }) async {
+    final validatedName = _validateTimetableName(timetableName);
+    if (validatedName.length > 80) {
+      throw ArgumentError.value(
+        timetableName,
+        'timetableName',
+        'Must not exceed 80 characters.',
+      );
+    }
+    if (!_isConsecutiveAcademicYear(academicYear)) {
+      throw ArgumentError.value(
+        academicYear,
+        'academicYear',
+        'Must use consecutive YYYY-YYYY years.',
+      );
+    }
+    if (term < 1 || term > 3) {
+      throw RangeError.range(term, 1, 3, 'term');
+    }
+    if (teachingWeeks < 1 || teachingWeeks > 40) {
+      throw RangeError.range(teachingWeeks, 1, 40, 'teachingWeeks');
+    }
+
+    return database.transaction(() async {
+      if ((await getSemesters()).isNotEmpty) {
+        throw StateError(
+          'Initial timetable can only be created in an empty database.',
+        );
+      }
+      final semester = Semester(
+        id: _uuidGenerator(),
+        academicYear: academicYear,
+        term: '$term',
+        name: '$academicYear 第${_termName(term)}学期',
+        timetableName: validatedName,
+        startDate: startDate,
+        teachingWeeks: teachingWeeks,
+        isCurrent: true,
+      );
+      await database
+          .into(database.semesters)
+          .insert(_semesterCompanion(semester));
+      return semester;
+    });
+  }
+
+  Future<void> clearAllTimetableData() async {
+    await database.transaction(() async {
+      await database.delete(database.courseSessions).go();
+      await database.delete(database.courses).go();
+      await database.delete(database.periodDefinitions).go();
+      await database.delete(database.semesters).go();
+    });
+  }
+
   Future<Semester> createBlankTimetable({
     required String name,
     required Semester template,
@@ -162,6 +223,40 @@ class TimetableRepository {
       }
       await _selectOnlyCurrent(remaining.first.id);
       return remaining.first.copyWith(isCurrent: true);
+    });
+  }
+
+  Future<CourseSaveResult> saveCourseWithConflictCheck(
+    CourseWithSessions course, {
+    Set<String> acceptedConflictKeys = const {},
+  }) async {
+    _validateCourseGraph(course);
+    return database.transaction(() async {
+      if (!await _semesterExists(course.course.semesterId)) {
+        throw StateError('Semester not found: ${course.course.semesterId}');
+      }
+      await _validateStoredCourseIds(course);
+      final latest = await _loadSemesterTimetable(
+        (await getSemester(course.course.semesterId))!,
+      );
+      final conflicts = findCourseConflicts(
+        candidate: course,
+        existingCourses: latest.courses,
+      );
+      final unaccepted = conflicts
+          .where((conflict) => !acceptedConflictKeys.contains(conflict.key))
+          .toList(growable: false);
+      if (unaccepted.isNotEmpty) {
+        return CourseConflictConfirmationRequired(conflicts: conflicts);
+      }
+      await database
+          .into(database.courses)
+          .insertOnConflictUpdate(_courseCompanion(course.course));
+      await (database.delete(
+        database.courseSessions,
+      )..where((table) => table.courseId.equals(course.course.id))).go();
+      await _insertSessions(course.sessions);
+      return const CourseSaved();
     });
   }
 
@@ -360,6 +455,23 @@ class TimetableRepository {
       throw ArgumentError.value(name, 'name', 'Must not be empty.');
     }
     return trimmed;
+  }
+
+  bool _isConsecutiveAcademicYear(String value) {
+    final match = RegExp(r'^(\d{4})-(\d{4})$').firstMatch(value.trim());
+    if (match == null) return false;
+    final first = int.parse(match.group(1)!);
+    final second = int.parse(match.group(2)!);
+    return second == first + 1;
+  }
+
+  String _termName(int term) {
+    return switch (term) {
+      1 => '一',
+      2 => '二',
+      3 => '三',
+      _ => '$term',
+    };
   }
 
   Future<bool> _semesterExists(String semesterId) async {

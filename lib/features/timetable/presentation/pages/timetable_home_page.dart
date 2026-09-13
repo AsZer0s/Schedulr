@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
+import '../../../../core/platform/adaptive_ui.dart';
 import '../../../../core/time/teaching_calendar.dart';
 import '../../data/providers.dart';
 import '../../domain/timetable_models.dart';
@@ -118,10 +120,8 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
         )
         .toList(growable: false);
 
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
+    await showAdaptiveLongSheet<void>(
+      context,
       builder: (sheetContext) => TimetableSwitcherSheet(
         timetables: items,
         onSelect: _setCurrentTimetable,
@@ -193,6 +193,26 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
     await WebViewCookieManager().clearCookies();
   }
 
+  Future<void> _showHomeActions(SemesterTimetable? current) async {
+    final action = await showAdaptiveActionSheet<String>(
+      context,
+      title: '更多操作',
+      actions: const [
+        AdaptiveActionSheetAction(label: '导入课表', value: 'import'),
+        AdaptiveActionSheetAction(label: '设置', value: 'settings'),
+      ],
+    );
+    if (!mounted) return;
+    switch (action) {
+      case 'import':
+        if (current != null) {
+          unawaited(context.push('/import?target=${current.semester.id}'));
+        }
+      case 'settings':
+        unawaited(context.push('/settings'));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final timetable = ref.watch(currentTimetableProvider);
@@ -202,15 +222,112 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
     final currentName = current == null
         ? '加载中'
         : _timetableName(current.semester);
+    final isCupertino = usesCupertinoConventions(context);
+    final body = timetable.when(
+      loading: () => Center(
+        child: isCupertino
+            ? const CupertinoActivityIndicator()
+            : const CircularProgressIndicator(),
+      ),
+      error: (error, _) =>
+          _LoadFailure(onRetry: () => ref.invalidate(currentTimetableProvider)),
+      data: (value) {
+        if (value == null) {
+          return const Center(child: Text('正在初始化本地学期…'));
+        }
+
+        final semester = value.semester;
+        _synchronizeSemesterCalendar(semester);
+        final selectedWeek = _selectionFor(semester);
+        final week = _effectiveWeek(semester, today, selectedWeek);
+        if (week == null) {
+          return _TodayOutsideSemester(
+            semester: semester,
+            today: today,
+            onViewFirstWeek: () => _setSelectedWeek(semester, 1),
+            onOpenSemesterSettings: () => context.push('/settings/semester'),
+          );
+        }
+
+        return Column(
+          children: [
+            _WeekSelector(
+              semester: semester,
+              week: week,
+              followsToday: selectedWeek == null,
+              onPrevious: week > 1
+                  ? () => _selectWeek(semester, today, -1)
+                  : null,
+              onNext: week < semester.teachingWeeks
+                  ? () => _selectWeek(semester, today, 1)
+                  : null,
+              onToday: () => _followToday(semester),
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => WeeklyTimetableView(
+                    timetable: value,
+                    teachingWeek: week,
+                    today: today,
+                    height: constraints.maxHeight,
+                    onCourseTap: _openCourse,
+                    onPreviousWeek: week > 1
+                        ? () => _selectWeek(semester, today, -1)
+                        : null,
+                    onNextWeek: week < semester.teachingWeeks
+                        ? () => _selectWeek(semester, today, 1)
+                        : null,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    final title = _TimetableTitleButton(
+      timetableName: currentName,
+      enabled: current != null && semesters.hasValue,
+      onPressed: current == null || !semesters.hasValue
+          ? null
+          : () => _showTimetableSwitcher(current, semesters.requireValue),
+    );
+
+    if (isCupertino) {
+      return CupertinoPageScaffold(
+        navigationBar: CupertinoNavigationBar(
+          middle: title,
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CupertinoButton(
+                key: const ValueKey('ios-add-course'),
+                padding: EdgeInsets.zero,
+                onPressed: () => context.push('/course/new'),
+                child: const Icon(CupertinoIcons.add),
+              ),
+              CupertinoButton(
+                key: const ValueKey('ios-home-actions'),
+                padding: EdgeInsets.zero,
+                onPressed: () => _showHomeActions(current),
+                child: const Icon(CupertinoIcons.ellipsis_circle),
+              ),
+            ],
+          ),
+        ),
+        child: SafeArea(
+          bottom: false,
+          child: Material(type: MaterialType.transparency, child: body),
+        ),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: _TimetableTitleButton(
-          timetableName: currentName,
-          enabled: current != null && semesters.hasValue,
-          onPressed: current == null || !semesters.hasValue
-              ? null
-              : () => _showTimetableSwitcher(current, semesters.requireValue),
-        ),
+        title: title,
         actions: [
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -230,67 +347,7 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
           ),
         ],
       ),
-      body: timetable.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _LoadFailure(
-          onRetry: () => ref.invalidate(currentTimetableProvider),
-        ),
-        data: (value) {
-          if (value == null) {
-            return const Center(child: Text('正在初始化本地学期…'));
-          }
-
-          final semester = value.semester;
-          _synchronizeSemesterCalendar(semester);
-          final selectedWeek = _selectionFor(semester);
-          final week = _effectiveWeek(semester, today, selectedWeek);
-          if (week == null) {
-            return _TodayOutsideSemester(
-              semester: semester,
-              today: today,
-              onViewFirstWeek: () => _setSelectedWeek(semester, 1),
-              onOpenSemesterSettings: () => context.push('/settings/semester'),
-            );
-          }
-
-          return Column(
-            children: [
-              _WeekSelector(
-                semester: semester,
-                week: week,
-                followsToday: selectedWeek == null,
-                onPrevious: week > 1
-                    ? () => _selectWeek(semester, today, -1)
-                    : null,
-                onNext: week < semester.teachingWeeks
-                    ? () => _selectWeek(semester, today, 1)
-                    : null,
-                onToday: () => _followToday(semester),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) => WeeklyTimetableView(
-                      timetable: value,
-                      teachingWeek: week,
-                      today: today,
-                      height: constraints.maxHeight,
-                      onCourseTap: _openCourse,
-                      onPreviousWeek: week > 1
-                          ? () => _selectWeek(semester, today, -1)
-                          : null,
-                      onNextWeek: week < semester.teachingWeeks
-                          ? () => _selectWeek(semester, today, 1)
-                          : null,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+      body: body,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/course/new'),
         icon: const Icon(Icons.add_rounded),
@@ -320,10 +377,10 @@ class _TimetableTitleButton extends StatelessWidget {
       enabled: enabled,
       label: '切换课程表，当前为$timetableName',
       excludeSemantics: true,
-      child: InkWell(
+      child: GestureDetector(
         key: const ValueKey('timetable-title-button'),
+        behavior: HitTestBehavior.opaque,
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 240),
           child: Padding(

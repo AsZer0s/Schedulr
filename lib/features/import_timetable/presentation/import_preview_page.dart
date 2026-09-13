@@ -1,4 +1,8 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+
+import '../../../app/widgets/adaptive_scaffold.dart';
+import '../../../core/platform/adaptive_ui.dart';
 
 import '../domain/import_timetable.dart';
 
@@ -22,79 +26,91 @@ class ImportPreviewPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('导入预览')),
-      body: SafeArea(
-        child: Column(
-          children: [
-            _ImportSummary(
-              preview: preview,
-              sourceName: sourceName,
-              targetTimetableName: targetTimetableName,
-              timingProfile: timingProfile,
-            ),
-            if (preview.issues.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                child: Column(
-                  children: [
-                    for (final issue in preview.issues)
-                      Card(
-                        color: issue.severity == ImportIssueSeverity.error
-                            ? Theme.of(context).colorScheme.errorContainer
-                            : Theme.of(context).colorScheme.tertiaryContainer,
-                        child: ListTile(
-                          dense: true,
-                          leading: Icon(
-                            issue.severity == ImportIssueSeverity.error
-                                ? Icons.error_outline_rounded
-                                : Icons.info_outline_rounded,
-                          ),
-                          title: Text(issue.message),
+    final canCommit =
+        preview.canCommit &&
+        (preview.addedCount > 0 ||
+            hasCalendarUpdate ||
+            timingProfile?.schedule != null);
+    final label = preview.addedCount > 0
+        ? '导入 ${preview.addedCount} 条新安排'
+        : timingProfile?.schedule != null && hasCalendarUpdate
+        ? '更新校历与作息'
+        : timingProfile?.schedule != null
+        ? '更新作息'
+        : '更新校历';
+    final isCupertino = usesCupertinoConventions(context);
+    return AdaptiveScaffold(
+      title: const Text('导入预览'),
+      body: Column(
+        children: [
+          _ImportSummary(
+            preview: preview,
+            sourceName: sourceName,
+            targetTimetableName: targetTimetableName,
+            timingProfile: timingProfile,
+          ),
+          if (preview.issues.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Column(
+                children: [
+                  for (final issue in preview.issues)
+                    Card(
+                      color: issue.severity == ImportIssueSeverity.error
+                          ? Theme.of(context).colorScheme.errorContainer
+                          : Theme.of(context).colorScheme.tertiaryContainer,
+                      child: ListTile(
+                        dense: true,
+                        leading: Icon(
+                          issue.severity == ImportIssueSeverity.error
+                              ? Icons.error_outline_rounded
+                              : Icons.info_outline_rounded,
                         ),
+                        title: Text(issue.message),
                       ),
-                  ],
-                ),
-              ),
-            const Divider(height: 1),
-            Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.all(16),
-                itemCount: preview.items.length,
-                separatorBuilder: (_, _) => const SizedBox(height: 10),
-                itemBuilder: (context, index) {
-                  return _PreviewItemTile(item: preview.items[index]);
-                },
+                    ),
+                ],
               ),
             ),
+          const Divider(height: 1),
+          Expanded(
+            child: ListView.separated(
+              padding: const EdgeInsets.all(16),
+              itemCount: preview.items.length,
+              separatorBuilder: (_, _) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                return _PreviewItemTile(item: preview.items[index]);
+              },
+            ),
+          ),
+          if (!isCupertino)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(
-                  onPressed:
-                      preview.canCommit &&
-                          (preview.addedCount > 0 ||
-                              hasCalendarUpdate ||
-                              timingProfile?.schedule != null)
-                      ? () async => onCommit()
-                      : null,
+                  key: const ValueKey('import-preview-commit'),
+                  onPressed: canCommit ? () async => onCommit() : null,
                   icon: const Icon(Icons.download_done_rounded),
-                  label: Text(
-                    preview.addedCount > 0
-                        ? '导入 ${preview.addedCount} 条新安排'
-                        : timingProfile?.schedule != null && hasCalendarUpdate
-                        ? '更新校历与作息'
-                        : timingProfile?.schedule != null
-                        ? '更新作息'
-                        : '更新校历',
-                  ),
+                  label: Text(label),
                 ),
               ),
             ),
-          ],
-        ),
+        ],
       ),
+      cupertinoBottomAction: isCupertino
+          ? SafeArea(
+              minimum: const EdgeInsets.all(12),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoButton.filled(
+                  key: const ValueKey('import-preview-commit'),
+                  onPressed: canCommit ? () async => onCommit() : null,
+                  child: Text(label),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

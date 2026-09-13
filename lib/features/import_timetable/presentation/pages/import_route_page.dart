@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../app/widgets/adaptive_scaffold.dart';
+
 import '../../../timetable/data/providers.dart';
 import '../../../timetable/domain/timetable_models.dart';
 import '../../data/timetable_import_coordinator.dart';
@@ -20,17 +22,17 @@ class ImportRoutePage extends ConsumerWidget {
         ? ref.watch(currentTimetableProvider)
         : ref.watch(semesterTimetableByIdProvider(targetId));
     return timetable.when(
-      loading: () =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (error, _) =>
-          const Scaffold(body: Center(child: Text('读取目标课表失败'))),
+      loading: () => const AdaptiveStatusPage(message: '', loading: true),
+      error: (error, _) => const AdaptiveStatusPage(message: '读取目标课表失败'),
       data: (value) {
         if (value == null) {
-          return const Scaffold(body: Center(child: Text('目标课表不存在或已被删除')));
+          return const AdaptiveStatusPage(message: '目标课表不存在或已被删除');
         }
         return TimetableImportPage(
           targetTimetableName: value.semester.timetableName,
           existingEntries: _existingEntries(value),
+          initialAcademicYear: value.semester.academicYear,
+          initialTerm: int.tryParse(value.semester.term) ?? 1,
           initialSource: initialSource == 'demo'
               ? ImportSourceChoice.demo
               : ImportSourceChoice.bitc,

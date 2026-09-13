@@ -112,7 +112,7 @@ final class BitcZfTimetableImporter implements TimetableImporter {
     final match = RegExp(r'^(\d{4})(?:-\d{4})?$')
         .firstMatch(term.academicYear.trim());
     if (match == null) {
-      throw FormatException('BITC 学年必须是 2026 或 2026-2027 形式。');
+      throw FormatException('BITC 学年必须是 YYYY 或 YYYY-YYYY 形式。');
     }
     final termCode = switch (term.term) {
       1 => 3,

@@ -1,4 +1,8 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+
+import '../../../app/widgets/adaptive_scaffold.dart';
+import '../../../core/platform/adaptive_ui.dart';
 
 import '../../../integrations/zfsoft/zfsoft.dart';
 import '../domain/import_timetable.dart';
@@ -12,6 +16,8 @@ class TimetableImportPage extends StatefulWidget {
     required this.existingEntries,
     required this.onCommit,
     required this.targetTimetableName,
+    required this.initialAcademicYear,
+    required this.initialTerm,
     this.initialSource = ImportSourceChoice.bitc,
     super.key,
   });
@@ -19,6 +25,8 @@ class TimetableImportPage extends StatefulWidget {
   final List<ExistingTimetableEntry> existingEntries;
   final Future<void> Function(ImportCommitRequest request) onCommit;
   final String targetTimetableName;
+  final String initialAcademicYear;
+  final int initialTerm;
   final ImportSourceChoice initialSource;
 
   @override
@@ -28,11 +36,11 @@ class TimetableImportPage extends StatefulWidget {
 class _TimetableImportPageState extends State<TimetableImportPage> {
   final _usernameController = TextEditingController(text: 'demo');
   final _passwordController = TextEditingController(text: 'demo');
-  final _academicYearController = TextEditingController(text: '2026-2027');
+  late final TextEditingController _academicYearController;
 
   late ImportSourceChoice _source;
   ImportStrategy _strategy = ImportStrategy.merge;
-  int _term = 1;
+  late int _term;
   bool _isLoading = false;
   String? _errorMessage;
 
@@ -40,6 +48,10 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   void initState() {
     super.initState();
     _source = widget.initialSource;
+    _academicYearController = TextEditingController(
+      text: widget.initialAcademicYear,
+    );
+    _term = widget.initialTerm.clamp(1, 3);
   }
 
   @override
@@ -88,7 +100,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
         issues: [...timetable.issues, ...calculated.issues],
       );
       await Navigator.of(context).push<void>(
-        MaterialPageRoute<void>(
+        adaptivePageRoute<void>(
+          context: context,
           builder: (context) => ImportPreviewPage(
             preview: preview,
             sourceName: timetable.sourceName,
@@ -152,6 +165,22 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
       if (id != null) counts[id] = (counts[id] ?? 0) + 1;
     }
     var selected = selection.defaultProfile!;
+    if (usesCupertinoConventions(context)) {
+      final chosen = await showAdaptiveActionSheet<String>(
+        context,
+        title: '选择本学期作息校区',
+        message: '检测到不同校区使用不同作息。只会将所选校区作息应用到本学期。',
+        actions: [
+          for (final profile in unique)
+            AdaptiveActionSheetAction(
+              label: '${profile.name}（${counts[profile.id] ?? 0} 条安排）',
+              value: profile.id,
+            ),
+        ],
+      );
+      if (chosen == null) return null;
+      return unique.firstWhere((profile) => profile.id == chosen);
+    }
     return showDialog<ImportedTimingProfile>(
       context: context,
       barrierDismissible: false,
@@ -200,7 +229,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
     final importer = BitcZfTimetableImporter(
       fetchPayload: (_) async {
         final result = await Navigator.of(context).push<String>(
-          MaterialPageRoute<String>(
+          adaptivePageRoute<String>(
+            context: context,
             builder: (context) => BitcWebSessionPage(
               request: BitcTimetableWebRequest(
                 academicYearStart: protocolTerm.academicYear,
@@ -245,149 +275,170 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isBitc = _source == ImportSourceChoice.bitc;
-    return Scaffold(
-      appBar: AppBar(title: const Text('正方教务导入')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Card(
-              color: theme.colorScheme.primaryContainer,
-              child: ListTile(
-                leading: const Icon(Icons.table_chart_outlined),
-                title: const Text('导入到'),
-                subtitle: Text(
-                  widget.targetTimetableName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
+    final isCupertino = usesCupertinoConventions(context);
+    final body = ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Card(
+          color: theme.colorScheme.primaryContainer,
+          child: ListTile(
+            leading: const Icon(Icons.table_chart_outlined),
+            title: const Text('导入到'),
+            subtitle: Text(
+              widget.targetTimetableName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
             ),
-            const SizedBox(height: 12),
-            SegmentedButton<ImportSourceChoice>(
-              segments: const [
-                ButtonSegment(
-                  value: ImportSourceChoice.bitc,
-                  label: Text('BITC 教务'),
-                  icon: Icon(Icons.school_outlined),
-                ),
-                ButtonSegment(
-                  value: ImportSourceChoice.demo,
-                  label: Text('本地演示'),
-                  icon: Icon(Icons.science_outlined),
-                ),
-              ],
-              selected: {_source},
-              onSelectionChanged: _isLoading
-                  ? null
-                  : (selection) => setState(() {
-                      _source = selection.single;
-                      _errorMessage = null;
-                    }),
+          ),
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<ImportSourceChoice>(
+          segments: const [
+            ButtonSegment(
+              value: ImportSourceChoice.bitc,
+              label: Text('BITC 教务'),
+              icon: Icon(Icons.school_outlined),
             ),
-            const SizedBox(height: 16),
-            Card(
-              color: theme.colorScheme.secondaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Text(
-                  isBitc
-                      ? '将在受限 WebView 中打开学校 VPN/IAM 登录。密码只提交给学校页面，App 不读取或保存；登录后仅传回课表必需字段。'
-                      : '本地演示不会联网。演示账号和密码均为 demo。',
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            if (!isBitc) ...[
-              TextField(
-                controller: _usernameController,
-                textInputAction: TextInputAction.next,
-                autocorrect: false,
-                decoration: const InputDecoration(
-                  labelText: '演示账号',
-                  prefixIcon: Icon(Icons.person_outline_rounded),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _passwordController,
-                obscureText: true,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: '演示密码',
-                  prefixIcon: Icon(Icons.lock_outline_rounded),
-                ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            TextField(
-              controller: _academicYearController,
-              textInputAction: TextInputAction.done,
-              decoration: const InputDecoration(
-                labelText: '学年',
-                hintText: '2026-2027',
-                prefixIcon: Icon(Icons.calendar_today_outlined),
-              ),
-            ),
-            const SizedBox(height: 16),
-            SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 1, label: Text('第一学期')),
-                ButtonSegment(value: 2, label: Text('第二学期')),
-                ButtonSegment(value: 3, label: Text('第三学期')),
-              ],
-              selected: {_term},
-              onSelectionChanged: (selection) {
-                setState(() => _term = selection.single);
-              },
-            ),
-            const SizedBox(height: 16),
-            SegmentedButton<ImportStrategy>(
-              segments: const [
-                ButtonSegment(
-                  value: ImportStrategy.merge,
-                  label: Text('合并'),
-                  icon: Icon(Icons.merge_rounded),
-                ),
-                ButtonSegment(
-                  value: ImportStrategy.replace,
-                  label: Text('替换'),
-                  icon: Icon(Icons.swap_horiz_rounded),
-                ),
-              ],
-              selected: {_strategy},
-              onSelectionChanged: (selection) {
-                setState(() => _strategy = selection.single);
-              },
-            ),
-            if (_errorMessage case final message?) ...[
-              const SizedBox(height: 14),
-              Text(message, style: TextStyle(color: theme.colorScheme.error)),
-            ],
-            const SizedBox(height: 24),
-            FilledButton.icon(
-              onPressed: _isLoading ? null : _startImport,
-              icon: _isLoading
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : Icon(
-                      isBitc
-                          ? Icons.open_in_browser_rounded
-                          : Icons.cloud_download_outlined,
-                    ),
-              label: Text(
-                _isLoading
-                    ? '正在生成预览…'
-                    : isBitc
-                    ? '登录 BITC 并读取课表'
-                    : '登录并预览演示课表',
-              ),
+            ButtonSegment(
+              value: ImportSourceChoice.demo,
+              label: Text('本地演示'),
+              icon: Icon(Icons.science_outlined),
             ),
           ],
+          selected: {_source},
+          onSelectionChanged: _isLoading
+              ? null
+              : (selection) => setState(() {
+                  _source = selection.single;
+                  _errorMessage = null;
+                }),
         ),
-      ),
+        const SizedBox(height: 16),
+        Card(
+          color: theme.colorScheme.secondaryContainer,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Text(
+              isBitc
+                  ? '将在受限 WebView 中打开学校 VPN/IAM 登录。密码只提交给学校页面，App 不读取或保存；登录后仅传回课表必需字段。'
+                  : '本地演示不会联网。演示账号和密码均为 demo。',
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        if (!isBitc) ...[
+          TextField(
+            controller: _usernameController,
+            textInputAction: TextInputAction.next,
+            autocorrect: false,
+            decoration: const InputDecoration(
+              labelText: '演示账号',
+              prefixIcon: Icon(Icons.person_outline_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _passwordController,
+            obscureText: true,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: '演示密码',
+              prefixIcon: Icon(Icons.lock_outline_rounded),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        TextField(
+          controller: _academicYearController,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            labelText: '学年',
+            hintText: 'YYYY-YYYY',
+            prefixIcon: Icon(Icons.calendar_today_outlined),
+          ),
+        ),
+        const SizedBox(height: 16),
+        SegmentedButton<int>(
+          segments: const [
+            ButtonSegment(value: 1, label: Text('第一学期')),
+            ButtonSegment(value: 2, label: Text('第二学期')),
+            ButtonSegment(value: 3, label: Text('第三学期')),
+          ],
+          selected: {_term},
+          onSelectionChanged: (selection) {
+            setState(() => _term = selection.single);
+          },
+        ),
+        const SizedBox(height: 16),
+        SegmentedButton<ImportStrategy>(
+          segments: const [
+            ButtonSegment(
+              value: ImportStrategy.merge,
+              label: Text('合并'),
+              icon: Icon(Icons.merge_rounded),
+            ),
+            ButtonSegment(
+              value: ImportStrategy.replace,
+              label: Text('替换'),
+              icon: Icon(Icons.swap_horiz_rounded),
+            ),
+          ],
+          selected: {_strategy},
+          onSelectionChanged: (selection) {
+            setState(() => _strategy = selection.single);
+          },
+        ),
+        if (_errorMessage case final message?) ...[
+          const SizedBox(height: 14),
+          Text(message, style: TextStyle(color: theme.colorScheme.error)),
+        ],
+        const SizedBox(height: 24),
+        if (!isCupertino)
+          FilledButton.icon(
+            key: const ValueKey('import-primary-action'),
+            onPressed: _isLoading ? null : _startImport,
+            icon: _isLoading
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Icon(
+                    isBitc
+                        ? Icons.open_in_browser_rounded
+                        : Icons.cloud_download_outlined,
+                  ),
+            label: Text(
+              _isLoading
+                  ? '正在生成预览…'
+                  : isBitc
+                  ? '登录 BITC 并读取课表'
+                  : '登录并预览演示课表',
+            ),
+          ),
+      ],
+    );
+    return AdaptiveScaffold(
+      title: const Text('正方教务导入'),
+      body: body,
+      cupertinoBottomAction: isCupertino
+          ? SafeArea(
+              minimum: const EdgeInsets.all(12),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoButton.filled(
+                  key: const ValueKey('import-primary-action'),
+                  onPressed: _isLoading ? null : _startImport,
+                  child: Text(
+                    _isLoading
+                        ? '正在生成预览…'
+                        : isBitc
+                        ? '登录 BITC 并读取课表'
+                        : '登录并预览演示课表',
+                  ),
+                ),
+              ),
+            )
+          : null,
     );
   }
 }

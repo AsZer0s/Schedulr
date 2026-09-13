@@ -21,6 +21,71 @@ void main() {
 
   tearDown(() => database.close());
 
+  test(
+    'create initial timetable is atomic and only allowed when empty',
+    () async {
+      final created = await repository.createInitialTimetable(
+        timetableName: '  我的新课表  ',
+        academicYear: '2030-2031',
+        term: 2,
+        startDate: DateTime(2031, 2, 19, 18),
+        teachingWeeks: 19,
+      );
+
+      expect(created.id, 'generated-0');
+      expect(created.timetableName, '我的新课表');
+      expect(created.academicYear, '2030-2031');
+      expect(created.term, '2');
+      expect(created.name, '2030-2031 第二学期');
+      expect(created.startDate, DateTime(2031, 2, 19));
+      expect(created.teachingWeeks, 19);
+      expect(created.isCurrent, isTrue);
+      final timetable = await repository.getSemesterTimetable(created.id);
+      expect(timetable!.courses, isEmpty);
+      expect(timetable.periodDefinitions, isEmpty);
+
+      await expectLater(
+        repository.createInitialTimetable(
+          timetableName: '另一个',
+          academicYear: '2031-2032',
+          term: 1,
+          startDate: DateTime(2031, 9, 1),
+          teachingWeeks: 20,
+        ),
+        throwsStateError,
+      );
+      expect(await repository.getSemesters(), [created]);
+    },
+  );
+
+  test('invalid initial data creates no partial semester', () async {
+    await expectLater(
+      repository.createInitialTimetable(
+        timetableName: '   ',
+        academicYear: '2030-2032',
+        term: 4,
+        startDate: DateTime(2030, 9, 1),
+        teachingWeeks: 41,
+      ),
+      throwsA(anything),
+    );
+    expect(await repository.getSemesters(), isEmpty);
+  });
+
+  test('clear all removes sessions, courses, periods and semesters', () async {
+    await repository.replaceSemesterTimetable(
+      _timetable(courseId: 'course-a', courseName: '高等数学'),
+    );
+
+    await repository.clearAllTimetableData();
+
+    expect(await database.select(database.courseSessions).get(), isEmpty);
+    expect(await database.select(database.courses).get(), isEmpty);
+    expect(await database.select(database.periodDefinitions).get(), isEmpty);
+    expect(await database.select(database.semesters).get(), isEmpty);
+    expect(await repository.getSemesters(), isEmpty);
+  });
+
   test('persists semester timetable CRUD and emits watch updates', () async {
     final timetable = _timetable(courseId: 'course-a', courseName: '高等数学');
     final watchFuture = repository

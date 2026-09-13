@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:schedulr/features/course_editor/presentation/course_editor_page.dart';
@@ -23,7 +24,13 @@ void main() {
     CourseWithSessions? initialCourse,
     List<PeriodDefinition> periodDefinitions = const [],
     required Future<void> Function(CourseWithSessions course) onSave,
+    Future<CourseSaveResult> Function(
+      CourseWithSessions course, {
+      required Set<String> acceptedConflictKeys,
+    })?
+    saveWithConflictCheck,
     Future<void> Function()? onDelete,
+    TargetPlatform platform = TargetPlatform.android,
   }) async {
     tester.view.physicalSize = const Size(900, 1600);
     tester.view.devicePixelRatio = 1;
@@ -32,17 +39,67 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: ThemeData(platform: platform),
         home: CourseEditorPage(
           semester: semester,
           periodDefinitions: periodDefinitions,
           initialCourse: initialCourse,
           onSave: onSave,
+          saveWithConflictCheck: saveWithConflictCheck,
           onDelete: onDelete,
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
+
+  testWidgets('iOS picker 选择星期和节次后可保存', (tester) async {
+    CourseWithSessions? saved;
+    final periods = [
+      for (var period = 1; period <= 4; period++)
+        PeriodDefinition(
+          id: 'period-$period',
+          semesterId: semester.id,
+          period: period,
+          startTime: '${(7 + period).toString().padLeft(2, '0')}:00',
+          endTime: '${(7 + period).toString().padLeft(2, '0')}:45',
+          group: PeriodGroup.morning,
+        ),
+    ];
+    await pumpEditor(
+      tester,
+      platform: TargetPlatform.iOS,
+      periodDefinitions: periods,
+      onSave: (course) async => saved = course,
+    );
+
+    expect(find.byType(CupertinoNavigationBar), findsOneWidget);
+    expect(find.byType(DropdownButtonFormField<int>), findsNothing);
+    await tester.enterText(
+      find.byKey(const Key('course-name-field')),
+      'iOS 课程',
+    );
+    await tester.tap(find.byKey(const Key('session-0-weekday')));
+    await tester.pumpAndSettle();
+    expect(find.byType(CupertinoPicker), findsOneWidget);
+    await tester.drag(find.byType(CupertinoPicker), const Offset(0, -90));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('session-0-start-period')));
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(CupertinoPicker), const Offset(0, -45));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('完成'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('course-editor-save')));
+    await tester.pumpAndSettle();
+
+    expect(saved, isNotNull);
+    expect(saved!.sessions.single.weekday, greaterThan(DateTime.monday));
+    expect(saved!.sessions.single.startPeriod, greaterThan(1));
+  });
 
   testWidgets('新建课程保存生成 UUID 和手动来源', (tester) async {
     CourseWithSessions? saved;
@@ -163,6 +220,61 @@ void main() {
     expect(saved, isNotNull);
     expect(saved!.sessions.single.startPeriod, 5);
     expect(saved!.sessions.single.endPeriod, 5);
+  });
+
+  testWidgets('冲突返回修改不写入且再次确认传入 keys', (tester) async {
+    var calls = 0;
+    Set<String>? accepted;
+    final conflict = CourseConflictReport(
+      kind: CourseConflictKind.existingCourse,
+      candidateSession: _courseWithSessions(semester).sessions.single,
+      candidateSessionIndex: 0,
+      conflictingSession: _courseWithSessions(semester).sessions.single,
+      conflictingSessionIndex: 0,
+      conflictingCourse: _courseWithSessions(semester),
+      weekday: DateTime.monday,
+      startPeriod: 1,
+      endPeriod: 2,
+      weeks: {1, 2},
+    );
+    await pumpEditor(
+      tester,
+      onSave: (_) async {},
+      saveWithConflictCheck: (_, {required acceptedConflictKeys}) async {
+        calls++;
+        accepted = acceptedConflictKeys;
+        return calls == 1 || acceptedConflictKeys.isEmpty
+            ? CourseConflictConfirmationRequired(conflicts: [conflict])
+            : const CourseSaved();
+      },
+    );
+    await tester.enterText(find.byKey(const Key('course-name-field')), '冲突课程');
+    await tester.tap(find.byKey(const Key('course-editor-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('课程时间有冲突'), findsOneWidget);
+    expect(find.text('返回修改'), findsOneWidget);
+    expect(find.text('仍然保存'), findsOneWidget);
+    await tester.tap(find.text('返回修改'));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(accepted, isEmpty);
+    expect(find.byKey(const Key('course-editor-save')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('course-editor-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('仍然保存'), findsOneWidget);
+    await tester.tap(find.text('仍然保存'));
+    await tester.pumpAndSettle();
+    expect(calls, 3);
+    expect(accepted, contains(conflict.key));
+  });
+
+  testWidgets('保存异常保留表单并显示错误提示', (tester) async {
+    await pumpEditor(tester, onSave: (_) async => throw StateError('failed'));
+    await tester.enterText(find.byKey(const Key('course-name-field')), '保存失败');
+    await tester.tap(find.byKey(const Key('course-editor-save')));
+    await tester.pumpAndSettle();
+    expect(find.text('课程保存失败，请稍后重试'), findsOneWidget);
+    expect(find.byKey(const Key('course-name-field')), findsOneWidget);
   });
 
   testWidgets('编辑态删除需要确认', (tester) async {

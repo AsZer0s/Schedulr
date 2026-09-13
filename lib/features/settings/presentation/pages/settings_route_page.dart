@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 
-import '../../../../app/bootstrap/app_bootstrapper.dart';
 import '../../../../core/platform/adaptive_ui.dart';
 import '../../../../core/storage/secure_session_store.dart';
 import '../../../timetable/data/providers.dart';
@@ -24,20 +23,15 @@ class SettingsRoutePage extends ConsumerWidget {
         final confirmed = await showAdaptiveConfirmationDialog(
           context,
           title: '删除全部本地数据？',
-          message: '所有课程、学期和作息设置将被删除，并重新创建一个空白学期。',
+          message: '所有课程、学期和作息设置将被删除。完成后需要重新进行首次设置。',
           confirmLabel: '全部删除',
           destructive: true,
         );
         if (!confirmed) return;
         final repository = ref.read(timetableRepositoryProvider);
-        final semesters = await repository.getSemesters();
-        for (final semester in semesters) {
-          await repository.deleteSemester(semester.id);
-        }
-        await AppBootstrapper(repository).ensureInitialData();
+        await repository.clearAllTimetableData();
         if (!context.mounted) return;
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('全部本地课程数据已删除。')));
+        context.go('/onboarding');
       },
     );
   }

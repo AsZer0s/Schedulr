@@ -1,8 +1,12 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:webview_flutter/webview_flutter.dart';
+
+import '../../../../app/widgets/adaptive_scaffold.dart';
+import '../../../../core/platform/adaptive_ui.dart';
 
 class BitcWebSessionPage extends StatefulWidget {
   const BitcWebSessionPage({required this.request, super.key});
@@ -146,59 +150,79 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('登录 BITC 教务'),
-        actions: [
-          IconButton(
-            tooltip: '重新加载',
-            onPressed: _isFetching ? null : _controller.reload,
-            icon: const Icon(Icons.refresh_rounded),
-          ),
-        ],
-        bottom: _isLoading
-            ? const PreferredSize(
-                preferredSize: Size.fromHeight(3),
-                child: LinearProgressIndicator(minHeight: 3),
-              )
-            : null,
-      ),
-      body: SafeArea(
-        child: Column(
-          children: [
-            MaterialBanner(
-              content: Text(
-                _canFetch
-                    ? '已进入个人课表页面。应用只读取课表接口，不读取或保存登录密码。'
-                    : '请在学校 VPN/IAM 页面完成登录。页面仅允许访问 bitc.edu.cn 域名。',
+    final isCupertino = usesCupertinoConventions(context);
+    final enabled = _canFetch && !_isFetching;
+    final actionLabel = _isFetching ? '正在读取课表…' : '读取当前学期课表';
+    return AdaptiveScaffold(
+      title: const Text('登录 BITC 教务'),
+      actions: isCupertino
+          ? const []
+          : [
+              IconButton(
+                tooltip: '重新加载',
+                onPressed: _isFetching ? null : _controller.reload,
+                icon: const Icon(Icons.refresh_rounded),
               ),
-              actions: const [SizedBox.shrink()],
+            ],
+      cupertinoTrailing: isCupertino
+          ? CupertinoButton(
+              key: const ValueKey('bitc-reload'),
+              padding: EdgeInsets.zero,
+              onPressed: _isFetching ? null : _controller.reload,
+              child: const Icon(CupertinoIcons.refresh),
+            )
+          : null,
+      body: Column(
+        children: [
+          if (_isLoading) const LinearProgressIndicator(minHeight: 3),
+          MaterialBanner(
+            content: Text(
+              _canFetch
+                  ? '已进入个人课表页面。应用只读取课表接口，不读取或保存登录密码。'
+                  : '请在学校 VPN/IAM 页面完成登录。页面仅允许访问 bitc.edu.cn 域名。',
             ),
-            if (_message case final message?)
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Text(
-                  message,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+            actions: const [SizedBox.shrink()],
+          ),
+          if (_message case final message?)
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                message,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          Expanded(child: WebViewWidget(controller: _controller)),
+        ],
+      ),
+      bottomNavigationBar: isCupertino
+          ? null
+          : SafeArea(
+              minimum: const EdgeInsets.all(12),
+              child: FilledButton.icon(
+                key: const ValueKey('bitc-fetch'),
+                onPressed: enabled ? _fetchTimetable : null,
+                icon: _isFetching
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.download_rounded),
+                label: Text(actionLabel),
+              ),
+            ),
+      cupertinoBottomAction: isCupertino
+          ? SafeArea(
+              minimum: const EdgeInsets.all(12),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoButton.filled(
+                  key: const ValueKey('bitc-fetch'),
+                  onPressed: enabled ? _fetchTimetable : null,
+                  child: Text(actionLabel),
                 ),
               ),
-            Expanded(child: WebViewWidget(controller: _controller)),
-          ],
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        minimum: const EdgeInsets.all(12),
-        child: FilledButton.icon(
-          onPressed: _canFetch && !_isFetching ? _fetchTimetable : null,
-          icon: _isFetching
-              ? const SizedBox.square(
-                  dimension: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.download_rounded),
-          label: Text(_isFetching ? '正在读取课表…' : '读取当前学期课表'),
-        ),
-      ),
+            )
+          : null,
     );
   }
 }

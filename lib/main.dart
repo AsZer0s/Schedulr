@@ -12,12 +12,16 @@ Future<void> main() async {
 
   final database = AppDatabase();
   final repository = TimetableRepository(database);
-  await AppBootstrapper(repository).ensureInitialData();
+  final bootstrapState = await AppBootstrapper(repository).resolve();
 
   runApp(
     ProviderScope(
       overrides: [timetableDatabaseProvider.overrideWithValue(database)],
-      child: const SchedulrApp(),
+      child: SchedulrApp(
+        initialLocation: bootstrapState == AppBootstrapState.needsOnboarding
+            ? '/onboarding'
+            : '/',
+      ),
     ),
   );
 }

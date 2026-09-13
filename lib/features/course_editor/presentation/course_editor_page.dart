@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:uuid/uuid.dart';
@@ -12,6 +13,7 @@ class CourseEditorPage extends StatefulWidget {
     required this.onSave,
     this.periodDefinitions = const [],
     this.initialCourse,
+    this.saveWithConflictCheck,
     this.onDelete,
     super.key,
   });
@@ -20,6 +22,11 @@ class CourseEditorPage extends StatefulWidget {
   final List<PeriodDefinition> periodDefinitions;
   final CourseWithSessions? initialCourse;
   final Future<void> Function(CourseWithSessions course) onSave;
+  final Future<CourseSaveResult> Function(
+    CourseWithSessions course, {
+    required Set<String> acceptedConflictKeys,
+  })?
+  saveWithConflictCheck;
   final Future<void> Function()? onDelete;
 
   bool get isEditing => initialCourse != null;
@@ -189,18 +196,109 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
             ),
           ),
       ];
-      await widget.onSave(
-        CourseWithSessions(course: course, sessions: sessions),
-      );
+      final candidate = CourseWithSessions(course: course, sessions: sessions);
+      final saveWithConflictCheck = widget.saveWithConflictCheck;
+      if (saveWithConflictCheck == null) {
+        await widget.onSave(candidate);
+      } else {
+        var acceptedConflictKeys = <String>{};
+        while (true) {
+          final result = await saveWithConflictCheck(
+            candidate,
+            acceptedConflictKeys: acceptedConflictKeys,
+          );
+          if (result is CourseSaved) break;
+          if (result is! CourseConflictConfirmationRequired || !mounted) return;
+          if (mounted) setState(() => _isSaving = false);
+          final confirmed = await _showConflictDialog(result.conflicts);
+          if (!confirmed || !mounted) return;
+          setState(() => _isSaving = true);
+          acceptedConflictKeys = result.conflictKeys;
+        }
+      }
       if (mounted) {
         setState(() {
           _isDirty = false;
           _allowPop = true;
         });
       }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(const SnackBar(content: Text('课程保存失败，请稍后重试')));
+      }
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
+  }
+
+  Future<bool> _showConflictDialog(List<CourseConflictReport> conflicts) async {
+    final title = '课程时间有冲突';
+    final items = <Widget>[
+      for (final conflict in conflicts)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(_conflictDescription(conflict)),
+        ),
+    ];
+    if (usesCupertinoConventions(context)) {
+      return await showCupertinoDialog<bool>(
+            context: context,
+            builder: (context) => CupertinoAlertDialog(
+              title: Text(title),
+              content: ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 360),
+                child: SingleChildScrollView(child: Column(children: items)),
+              ),
+              actions: [
+                CupertinoDialogAction(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('返回修改'),
+                ),
+                CupertinoDialogAction(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text('仍然保存'),
+                ),
+              ],
+            ),
+          ) ??
+          false;
+    }
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(title),
+            content: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 360),
+              child: SingleChildScrollView(child: Column(children: items)),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('返回修改'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('仍然保存'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  String _conflictDescription(CourseConflictReport conflict) {
+    final subject = conflict.kind == CourseConflictKind.internal
+        ? '本课程安排${conflict.candidateSessionIndex + 1}/${conflict.conflictingSessionIndex + 1}冲突'
+        : '与《${conflict.conflictingCourse?.course.name ?? '课程'}》冲突';
+    final weeks = formatWeekExpression(conflict.weeks);
+    return '$subject：星期${_weekdayName(conflict.weekday)}，'
+        '第${conflict.startPeriod}-${conflict.endPeriod}节，共同周次：第$weeks周';
+  }
+
+  static String _weekdayName(int weekday) {
+    return const ['一', '二', '三', '四', '五', '六', '日'][weekday - 1];
   }
 
   void _addSession() {
@@ -264,146 +362,172 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
   @override
   Widget build(BuildContext context) {
     final busy = _isSaving || _isDeleting;
+    final body = SafeArea(
+      child: Form(
+        key: _formKey,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+          children: [
+            TextFormField(
+              key: const Key('course-name-field'),
+              controller: _nameController,
+              enabled: !busy,
+              autofocus: !widget.isEditing,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '课程名称',
+                prefixIcon: Icon(Icons.menu_book_outlined),
+              ),
+              validator: _requiredNameValidator,
+            ),
+            const SizedBox(height: 12),
+            TextFormField(
+              key: const Key('course-teacher-field'),
+              controller: _teacherController,
+              enabled: !busy,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(
+                labelText: '教师',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+              ),
+            ),
+            const SizedBox(height: 12),
+            Text('课程颜色', style: Theme.of(context).textTheme.titleSmall),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                for (final colorValue in _courseColors)
+                  _ColorChoice(
+                    colorValue: colorValue,
+                    selected: colorValue == _colorValue,
+                    onTap: busy
+                        ? null
+                        : () {
+                            setState(() {
+                              _colorValue = colorValue;
+                              _isDirty = true;
+                            });
+                          },
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '课程安排',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                ),
+                TextButton.icon(
+                  key: const Key('course-editor-add-session'),
+                  onPressed: busy ? null : _addSession,
+                  icon: const Icon(Icons.add_rounded),
+                  label: const Text('添加安排'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (var index = 0; index < _sessions.length; index++) ...[
+              _SessionEditorCard(
+                key: ValueKey(_sessions[index]),
+                index: index,
+                draft: _sessions[index],
+                enabled: !busy,
+                canRemove: _sessions.length > 1,
+                maximumWeek: widget.semester.teachingWeeks,
+                availablePeriods: _availablePeriods,
+                positivePeriodValidator: _positivePeriodValidator,
+                endPeriodValidator: _endPeriodValidator,
+                weekExpressionValidator: _weekExpressionValidator,
+                onChanged: _markDirty,
+                onRemove: () => _removeSession(index),
+              ),
+              const SizedBox(height: 12),
+            ],
+            TextFormField(
+              key: const Key('course-notes-field'),
+              controller: _notesController,
+              enabled: !busy,
+              minLines: 3,
+              maxLines: 6,
+              textInputAction: TextInputAction.newline,
+              decoration: const InputDecoration(
+                labelText: '备注',
+                alignLabelWithHint: true,
+                prefixIcon: Icon(Icons.notes_rounded),
+              ),
+            ),
+            if (widget.isEditing && widget.onDelete != null) ...[
+              const SizedBox(height: 24),
+              if (usesCupertinoConventions(context))
+                CupertinoButton(
+                  key: const Key('course-editor-delete'),
+                  color: CupertinoColors.systemRed,
+                  onPressed: busy ? null : _delete,
+                  child: const Text('删除课程'),
+                )
+              else
+                OutlinedButton.icon(
+                  key: const Key('course-editor-delete'),
+                  onPressed: busy ? null : _delete,
+                  icon: _isDeleting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.delete_outline_rounded),
+                  label: const Text('删除课程'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      ),
+    );
+    final isCupertino = usesCupertinoConventions(context);
+    final page = isCupertino
+        ? CupertinoPageScaffold(
+            navigationBar: CupertinoNavigationBar(
+              middle: Text(widget.isEditing ? '编辑课程' : '新建课程'),
+              trailing: CupertinoButton(
+                key: const Key('course-editor-save'),
+                padding: EdgeInsets.zero,
+                onPressed: busy ? null : _save,
+                child: _isSaving
+                    ? const CupertinoActivityIndicator()
+                    : const Text('保存'),
+              ),
+            ),
+            child: Material(type: MaterialType.transparency, child: body),
+          )
+        : Scaffold(
+            appBar: AppBar(
+              title: Text(widget.isEditing ? '编辑课程' : '新建课程'),
+              actions: [
+                TextButton(
+                  key: const Key('course-editor-save'),
+                  onPressed: busy ? null : _save,
+                  child: _isSaving
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('保存'),
+                ),
+              ],
+            ),
+            body: body,
+          );
     return PopScope<Object?>(
       canPop: _allowPop || !_isDirty,
       onPopInvokedWithResult: _handlePopAttempt,
-      child: Scaffold(
-        appBar: AppBar(
-          title: Text(widget.isEditing ? '编辑课程' : '新建课程'),
-          actions: [
-            TextButton(
-              key: const Key('course-editor-save'),
-              onPressed: busy ? null : _save,
-              child: _isSaving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('保存'),
-            ),
-          ],
-        ),
-        body: SafeArea(
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-              children: [
-                TextFormField(
-                  key: const Key('course-name-field'),
-                  controller: _nameController,
-                  enabled: !busy,
-                  autofocus: !widget.isEditing,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '课程名称',
-                    prefixIcon: Icon(Icons.menu_book_outlined),
-                  ),
-                  validator: _requiredNameValidator,
-                ),
-                const SizedBox(height: 12),
-                TextFormField(
-                  key: const Key('course-teacher-field'),
-                  controller: _teacherController,
-                  enabled: !busy,
-                  textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
-                    labelText: '教师',
-                    prefixIcon: Icon(Icons.person_outline_rounded),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Text('课程颜色', style: Theme.of(context).textTheme.titleSmall),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 10,
-                  children: [
-                    for (final colorValue in _courseColors)
-                      _ColorChoice(
-                        colorValue: colorValue,
-                        selected: colorValue == _colorValue,
-                        onTap: busy
-                            ? null
-                            : () {
-                                setState(() {
-                                  _colorValue = colorValue;
-                                  _isDirty = true;
-                                });
-                              },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '课程安排',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                    ),
-                    TextButton.icon(
-                      key: const Key('course-editor-add-session'),
-                      onPressed: busy ? null : _addSession,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('添加安排'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                for (var index = 0; index < _sessions.length; index++) ...[
-                  _SessionEditorCard(
-                    key: ValueKey(_sessions[index]),
-                    index: index,
-                    draft: _sessions[index],
-                    enabled: !busy,
-                    canRemove: _sessions.length > 1,
-                    maximumWeek: widget.semester.teachingWeeks,
-                    availablePeriods: _availablePeriods,
-                    positivePeriodValidator: _positivePeriodValidator,
-                    endPeriodValidator: _endPeriodValidator,
-                    weekExpressionValidator: _weekExpressionValidator,
-                    onChanged: _markDirty,
-                    onRemove: () => _removeSession(index),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-                TextFormField(
-                  key: const Key('course-notes-field'),
-                  controller: _notesController,
-                  enabled: !busy,
-                  minLines: 3,
-                  maxLines: 6,
-                  textInputAction: TextInputAction.newline,
-                  decoration: const InputDecoration(
-                    labelText: '备注',
-                    alignLabelWithHint: true,
-                    prefixIcon: Icon(Icons.notes_rounded),
-                  ),
-                ),
-                if (widget.isEditing && widget.onDelete != null) ...[
-                  const SizedBox(height: 24),
-                  OutlinedButton.icon(
-                    key: const Key('course-editor-delete'),
-                    onPressed: busy ? null : _delete,
-                    icon: _isDeleting
-                        ? const SizedBox.square(
-                            dimension: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.delete_outline_rounded),
-                    label: const Text('删除课程'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
+      child: page,
     );
   }
 }
@@ -519,20 +643,15 @@ class _SessionEditorCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 8),
-            DropdownButtonFormField<int>(
+            AdaptivePickerFormField<int>(
               key: Key('session-$index-weekday'),
-              initialValue: draft.weekday,
+              values: List<int>.generate(7, (value) => value + 1),
+              labelBuilder: (weekday) => '星期${_weekdayName(weekday)}',
+              value: draft.weekday,
               decoration: const InputDecoration(
                 labelText: '星期',
                 prefixIcon: Icon(Icons.calendar_today_outlined),
               ),
-              items: [
-                for (var weekday = 1; weekday <= 7; weekday++)
-                  DropdownMenuItem(
-                    value: weekday,
-                    child: Text('星期${_weekdayName(weekday)}'),
-                  ),
-              ],
               onChanged: enabled
                   ? (value) {
                       if (value == null) return;
@@ -645,6 +764,7 @@ class _PeriodSelectors extends StatefulWidget {
 }
 
 class _PeriodSelectorsState extends State<_PeriodSelectors> {
+  final _endFieldKey = GlobalKey<FormFieldState<int>>();
   int? _controllerPeriod(TextEditingController controller) {
     final value = int.tryParse(controller.text);
     if (value == null ||
@@ -675,22 +795,18 @@ class _PeriodSelectorsState extends State<_PeriodSelectors> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
-          child: DropdownButtonFormField<int>(
+          child: AdaptivePickerFormField<int>(
             key: Key('session-${widget.index}-start-period'),
-            initialValue: start,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: '开始节次'),
-            items: [
-              for (final definition in widget.periods)
-                DropdownMenuItem(
-                  value: definition.period,
-                  child: Text(
-                    _label(definition),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
+            values: [
+              for (final definition in widget.periods) definition.period,
             ],
+            labelBuilder: (period) => _label(
+              widget.periods.firstWhere(
+                (definition) => definition.period == period,
+              ),
+            ),
+            value: start,
+            decoration: const InputDecoration(labelText: '开始节次'),
             onChanged: widget.enabled
                 ? (value) {
                     if (value == null) return;
@@ -700,6 +816,7 @@ class _PeriodSelectorsState extends State<_PeriodSelectors> {
                     );
                     if (currentEnd == null || currentEnd < value) {
                       widget.draft.endPeriodController.text = '$value';
+                      _endFieldKey.currentState?.didChange(value);
                     }
                     setState(() {});
                   }
@@ -710,31 +827,28 @@ class _PeriodSelectorsState extends State<_PeriodSelectors> {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: DropdownButtonFormField<int>(
+          child: KeyedSubtree(
             key: Key('session-${widget.index}-end-period'),
-            initialValue: validEnd,
-            isExpanded: true,
-            decoration: const InputDecoration(labelText: '结束节次'),
-            items: [
-              for (final definition in endPeriods)
-                DropdownMenuItem(
-                  value: definition.period,
-                  child: Text(
-                    _label(definition),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+            child: AdaptivePickerFormField<int>(
+              key: _endFieldKey,
+              values: [for (final definition in endPeriods) definition.period],
+              labelBuilder: (period) => _label(
+                endPeriods.firstWhere(
+                  (definition) => definition.period == period,
                 ),
-            ],
-            onChanged: widget.enabled
-                ? (value) {
-                    if (value == null) return;
-                    widget.draft.endPeriodController.text = '$value';
-                    setState(() {});
-                  }
-                : null,
-            validator: (value) =>
-                widget.endPeriodValidator(widget.draft, value?.toString()),
+              ),
+              value: validEnd,
+              decoration: const InputDecoration(labelText: '结束节次'),
+              onChanged: widget.enabled
+                  ? (value) {
+                      if (value == null) return;
+                      widget.draft.endPeriodController.text = '$value';
+                      setState(() {});
+                    }
+                  : null,
+              validator: (value) =>
+                  widget.endPeriodValidator(widget.draft, value?.toString()),
+            ),
           ),
         ),
       ],

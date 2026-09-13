@@ -10,6 +10,7 @@ void main() {
       MaterialApp(
         home: CourseDetailPage(
           course: _courseWithSessions(),
+          periodDefinitions: _periods(),
           onEdit: () async => editCount++,
         ),
       ),
@@ -19,8 +20,8 @@ void main() {
     expect(find.textContaining('刘老师'), findsOneWidget);
     expect(find.text('安排 1'), findsOneWidget);
     expect(find.text('安排 2'), findsOneWidget);
-    expect(find.textContaining('星期一 第1-2节'), findsOneWidget);
-    expect(find.textContaining('星期三 第5-6节'), findsOneWidget);
+    expect(find.textContaining('星期一 第1-2节 · 08:00–09:40'), findsOneWidget);
+    expect(find.textContaining('星期三 第5-6节 · 14:00–15:40'), findsOneWidget);
     expect(find.textContaining('第1-4周'), findsOneWidget);
     expect(find.textContaining('第5-8周'), findsOneWidget);
 
@@ -35,6 +36,28 @@ void main() {
     await tester.pump();
     expect(editCount, 1);
   });
+}
+
+List<PeriodDefinition> _periods() {
+  const times = <(String, String)>[
+    ('08:00', '08:45'),
+    ('08:55', '09:40'),
+    ('10:00', '10:45'),
+    ('10:55', '11:40'),
+    ('14:00', '14:45'),
+    ('14:55', '15:40'),
+  ];
+  return [
+    for (var index = 0; index < times.length; index++)
+      PeriodDefinition(
+        id: 'period-${index + 1}',
+        semesterId: 'semester-1',
+        period: index + 1,
+        startTime: times[index].$1,
+        endTime: times[index].$2,
+        group: index < 4 ? PeriodGroup.morning : PeriodGroup.afternoon,
+      ),
+  ];
 }
 
 CourseWithSessions _courseWithSessions() {

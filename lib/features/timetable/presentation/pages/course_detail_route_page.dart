@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../../app/widgets/adaptive_scaffold.dart';
+
 import '../../../course_editor/presentation/course_detail_page.dart';
 import '../../data/providers.dart';
 import '../../domain/course_with_sessions.dart';
@@ -15,21 +17,18 @@ class CourseDetailRoutePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final timetable = ref.watch(currentTimetableProvider);
     return timetable.when(
-      loading: () =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
-      error: (error, _) => const Scaffold(body: Center(child: Text('课程读取失败'))),
+      loading: () => const AdaptiveStatusPage(message: '', loading: true),
+      error: (error, _) => const AdaptiveStatusPage(message: '课程读取失败'),
       data: (value) {
         final course = value?.courses
             .where((entry) => entry.course.id == courseId)
             .firstOrNull;
         if (course == null) {
-          return Scaffold(
-            appBar: AppBar(),
-            body: const Center(child: Text('课程不存在或已被删除')),
-          );
+          return const AdaptiveStatusPage(message: '课程不存在或已被删除');
         }
         return CourseDetailPage(
           course: course,
+          periodDefinitions: value?.periodDefinitions ?? const [],
           onEdit: () => context.push('/course/$courseId/edit'),
           onDelete: () async {
             await ref.read(timetableRepositoryProvider).deleteCourse(courseId);

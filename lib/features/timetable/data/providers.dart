@@ -1,13 +1,19 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/storage/app_database.dart' show AppDatabase;
-import '../../../core/time/teaching_calendar.dart';
 import '../domain/timetable_models.dart';
 import 'timetable_repository.dart';
 
-final currentDateProvider = Provider<DateTime>((ref) {
-  return dateOnly(DateTime.now());
-});
+export '../../../core/time/current_date.dart'
+    show
+        AppClock,
+        CancelableMidnightTimer,
+        CurrentDateNotifier,
+        MidnightTimerFactory,
+        clockProvider,
+        currentDateNotifierProvider,
+        currentDateProvider,
+        midnightTimerFactoryProvider;
 
 final timetableDatabaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();

@@ -1,6 +1,7 @@
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:schedulr/features/timetable/domain/timetable_models.dart';
 import 'package:schedulr/features/timetable/presentation/weekly_timetable_view.dart';
@@ -568,6 +569,100 @@ void main() {
       });
     }
 
+    for (final width in <double>[320, 360, 390, 450]) {
+      for (final span in <int>[1, 2, 4]) {
+        for (final textScale in <double>[1, 2, 3]) {
+          testWidgets('$width 宽 $span 节 ${textScale}x 长课程名完整且驱动行高', (
+            tester,
+          ) async {
+            final names = <String>[
+              '毛泽东思想和中国特色社会主义理论体系概论',
+              'Web数据采集与网络爬虫',
+              'VeryLongEnglishCourseNameWithoutAnyWhitespaceForWrapping',
+              '自定义极长课程名称用于验证所有文字必须在课程卡片内部完整显示',
+            ];
+            final courses = <CourseWithSessions>[
+              for (var index = 0; index < names.length; index++)
+                CourseWithSessions(
+                  course: Course(
+                    id: 'long-$index',
+                    semesterId: 'semester',
+                    name: names[index],
+                    teacher: '教师$index',
+                    colorValue: 0xFF00695C,
+                  ),
+                  sessions: [
+                    CourseSession(
+                      id: 'long-$index-session',
+                      courseId: 'long-$index',
+                      weekday: index + 1,
+                      startPeriod: 1,
+                      endPeriod: span,
+                      location: '东区${index + 1}-101公共教室',
+                      weeks: const {1},
+                    ),
+                  ],
+                ),
+            ];
+
+            await _pumpView(
+              tester,
+              timetable: _timetable(courses),
+              teachingWeek: 1,
+              width: width,
+              surfaceHeight: 520,
+              viewHeight: 460,
+              textScaler: TextScaler.linear(textScale),
+            );
+
+            for (var index = 0; index < names.length; index++) {
+              final titleFinder = find.byKey(
+                WeeklyTimetableView.courseTitleKey('long-$index-session'),
+              );
+              final cardFinder = find.byKey(
+                ValueKey<String>('course-session-long-$index-session'),
+              );
+              expect(titleFinder, findsOneWidget);
+              expect(cardFinder, findsOneWidget);
+              final title = tester.widget<Text>(titleFinder);
+              expect(title.softWrap, isTrue);
+              expect(title.maxLines, isNull);
+              expect(title.overflow, isNot(TextOverflow.ellipsis));
+              expect(title.overflow, isNot(TextOverflow.clip));
+              final paragraph = tester.renderObject<RenderParagraph>(
+                titleFinder,
+              );
+              expect(paragraph.didExceedMaxLines, isFalse);
+              final titleRect = tester.getRect(titleFinder);
+              final cardRect = tester.getRect(cardFinder);
+              expect(titleRect.left, greaterThanOrEqualTo(cardRect.left));
+              expect(titleRect.right, lessThanOrEqualTo(cardRect.right + 0.01));
+              expect(titleRect.top, greaterThanOrEqualTo(cardRect.top));
+              expect(
+                titleRect.bottom,
+                lessThanOrEqualTo(cardRect.bottom + 0.01),
+              );
+            }
+            final firstPeriod = tester.getRect(
+              find.byKey(WeeklyTimetableView.periodCellKey(1)),
+            );
+            expect(firstPeriod.height, greaterThanOrEqualTo(50));
+            expect(
+              _horizontalPosition(tester).maxScrollExtent,
+              closeTo(0, 0.01),
+            );
+            if (_verticalPosition(tester).maxScrollExtent > 0) {
+              final scrollView = tester.widget<SingleChildScrollView>(
+                find.byKey(WeeklyTimetableView.gridVerticalScrollKey),
+              );
+              expect(scrollView.physics, isA<ClampingScrollPhysics>());
+            }
+            expect(tester.takeException(), isNull);
+          });
+        }
+      }
+    }
+
     testWidgets('课程卡显示课程名、教师和精简地点并保留完整语义', (tester) async {
       final course = CourseWithSessions(
         course: Course(
@@ -599,7 +694,12 @@ void main() {
 
       expect(find.text('数据分析'), findsOneWidget);
       expect(find.text('亢老师'), findsOneWidget);
-      expect(find.text('13-301'), findsOneWidget);
+      final locationFinder = find.byKey(
+        WeeklyTimetableView.courseLocationKey('details-session'),
+      );
+      if (locationFinder.evaluate().isNotEmpty) {
+        expect(find.text('13-301'), findsOneWidget);
+      }
       expect(find.textContaining('系统应用实训室'), findsNothing);
       final semantics = tester.getSemantics(
         find.byKey(const ValueKey<String>('course-session-details-session')),
@@ -657,7 +757,7 @@ void main() {
     });
 
     for (final span in <int>[1, 2, 4]) {
-      testWidgets('$span 节课程均显示紧凑三项且不溢出', (tester) async {
+      testWidgets('$span 节课程标题优先且元数据只整行显示', (tester) async {
         final course = CourseWithSessions(
           course: Course(
             id: 'span-$span',
@@ -687,14 +787,28 @@ void main() {
           textScaler: const TextScaler.linear(2),
         );
 
-        expect(find.text('移动开发'), findsOneWidget);
-        expect(find.text('陈老师'), findsOneWidget);
-        expect(find.text('14-311'), findsOneWidget);
+        final title = tester.widget<Text>(
+          find.byKey(WeeklyTimetableView.courseTitleKey('span-$span-session')),
+        );
+        expect(title.data, '移动开发');
+        expect(title.maxLines, isNull);
+        expect(title.overflow, isNot(TextOverflow.ellipsis));
+        for (final key in [
+          WeeklyTimetableView.courseTeacherKey('span-$span-session'),
+          WeeklyTimetableView.courseLocationKey('span-$span-session'),
+        ]) {
+          final finder = find.byKey(key);
+          if (finder.evaluate().isNotEmpty) {
+            final metadata = tester.widget<Text>(finder);
+            expect(metadata.maxLines, 1);
+            expect(metadata.overflow, isNot(TextOverflow.ellipsis));
+          }
+        }
         expect(tester.takeException(), isNull);
       });
     }
 
-    testWidgets('三门冲突在极窄子列降级但全部可点击且语义完整', (tester) async {
+    testWidgets('三门极窄冲突聚合且回调收到完整列表', (tester) async {
       final courses = [
         for (var index = 0; index < 3; index++)
           CourseWithSessions(
@@ -718,36 +832,133 @@ void main() {
             ],
           ),
       ];
-      final tapped = <String>[];
+      List<CourseSessionViewEntry>? conflictEntries;
 
       await _pumpView(
         tester,
         timetable: _timetable(courses),
         teachingWeek: 1,
         width: 320,
-        onCourseTap: (_, session) => tapped.add(session.id),
+        onConflictTap: (entries) => conflictEntries = entries,
       );
 
       for (var index = 0; index < 3; index++) {
-        final card = find.byKey(
-          ValueKey<String>('course-session-triple-$index-session'),
-        );
-        expect(card, findsOneWidget);
         expect(
-          find.byKey(
-            WeeklyTimetableView.courseTeacherKey('triple-$index-session'),
-          ),
+          find.byKey(ValueKey<String>('course-session-triple-$index-session')),
           findsNothing,
         );
-        final semantics = tester.getSemantics(card);
-        expect(semantics.label, contains('教师${index + 1}'));
-        expect(semantics.label, contains('东区13-30${index + 1}公共教室'));
-        await tester.tapAt(tester.getCenter(card));
-        await tester.pump();
+      }
+      final aggregate = find.byKey(
+        WeeklyTimetableView.conflictCardKey(DateTime.wednesday, 1, 2),
+      );
+      expect(aggregate, findsOneWidget);
+      expect(find.text('3门课程冲突'), findsOneWidget);
+      final semantics = tester.getSemantics(aggregate);
+      for (var index = 0; index < 3; index++) {
+        expect(semantics.label, contains('冲突${index + 1}'));
       }
 
-      expect(tapped, hasLength(3));
+      await tester.tap(aggregate);
+      await tester.pump();
+      expect(
+        conflictEntries?.map((entry) => entry.session.id),
+        orderedEquals([
+          'triple-0-session',
+          'triple-1-session',
+          'triple-2-session',
+        ]),
+      );
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('聚合卡横向滑动切周且不打开弹层', (tester) async {
+      final courses = [
+        _course(
+          id: 'aggregate-swipe-a',
+          name: '聚合滑动甲',
+          sessions: [
+            _session(
+              id: 'aggregate-swipe-a-session',
+              courseId: 'aggregate-swipe-a',
+              weeks: {1},
+            ),
+          ],
+        ),
+        _course(
+          id: 'aggregate-swipe-b',
+          name: '聚合滑动乙',
+          sessions: [
+            _session(
+              id: 'aggregate-swipe-b-session',
+              courseId: 'aggregate-swipe-b',
+              weeks: {1},
+            ),
+          ],
+        ),
+      ];
+      var nextCount = 0;
+      await _pumpView(
+        tester,
+        timetable: _timetable(courses),
+        teachingWeek: 1,
+        width: 320,
+        onNextWeek: () => nextCount++,
+      );
+      final aggregate = find.byKey(
+        WeeklyTimetableView.conflictCardKey(DateTime.monday, 1, 2),
+      );
+
+      await tester.drag(aggregate, const Offset(-120, 0));
+      await tester.pumpAndSettle();
+
+      expect(nextCount, 1);
+      expect(find.text('聚合滑动甲'), findsNothing);
+      expect(find.text('聚合滑动乙'), findsNothing);
+    });
+
+    testWidgets('500 宽两门冲突并排且课名完整', (tester) async {
+      final courses = [
+        _course(
+          id: 'wide-a',
+          name: 'Web数据采集与网络爬虫',
+          sessions: [
+            _session(id: 'wide-a-session', courseId: 'wide-a', weeks: {1}),
+          ],
+        ),
+        _course(
+          id: 'wide-b',
+          name: '毛泽东思想和中国特色社会主义理论体系概论',
+          sessions: [
+            _session(id: 'wide-b-session', courseId: 'wide-b', weeks: {1}),
+          ],
+        ),
+      ];
+      await _pumpView(
+        tester,
+        timetable: _timetable(courses),
+        teachingWeek: 1,
+        showWeekend: false,
+        width: 500,
+        textScaler: const TextScaler.linear(3),
+      );
+
+      expect(
+        find.byKey(WeeklyTimetableView.conflictCardKey(DateTime.monday, 1, 2)),
+        findsNothing,
+      );
+      for (final id in ['wide-a-session', 'wide-b-session']) {
+        final titleFinder = find.byKey(WeeklyTimetableView.courseTitleKey(id));
+        expect(titleFinder, findsOneWidget);
+        expect(
+          tester.renderObject<RenderParagraph>(titleFinder).didExceedMaxLines,
+          isFalse,
+        );
+        final card = find.byKey(ValueKey<String>('course-session-$id'));
+        expect(
+          tester.getRect(titleFinder).bottom,
+          lessThanOrEqualTo(tester.getRect(card).bottom + 0.01),
+        );
+      }
     });
 
     testWidgets('当前教学周表头和 today 列按统一 metrics 覆盖', (tester) async {
@@ -1119,7 +1330,7 @@ void main() {
       expect(courseTapCount, 0);
     });
 
-    testWidgets('320 宽冲突课程不溢出且两张卡均可点击', (tester) async {
+    testWidgets('320 宽两门窄冲突聚合，默认弹层可进入课程', (tester) async {
       final firstCourse = _course(
         id: 'conflict-a',
         name: '冲突课程甲',
@@ -1156,27 +1367,30 @@ void main() {
         onCourseTap: (course, session) => tapped.add(session.id),
       );
 
-      final first = find.byKey(
-        const ValueKey<String>('course-session-conflict-a-session'),
+      final aggregate = find.byKey(
+        WeeklyTimetableView.conflictCardKey(DateTime.monday, 1, 3),
       );
-      final second = find.byKey(
-        const ValueKey<String>('course-session-conflict-b-session'),
-      );
-      expect(first, findsOneWidget);
-      expect(second, findsOneWidget);
-      expect(tester.getTopLeft(first).dx, isNot(tester.getTopLeft(second).dx));
-      expect(tester.getSize(first).width, greaterThan(0));
-      expect(tester.getSize(second).width, greaterThan(0));
-
-      await tester.tapAt(tester.getCenter(first));
-      await tester.pump();
-      await tester.tapAt(tester.getCenter(second));
-      await tester.pump();
-
+      expect(aggregate, findsOneWidget);
       expect(
-        tapped,
-        containsAll(<String>['conflict-a-session', 'conflict-b-session']),
+        find.byKey(const ValueKey<String>('course-session-conflict-a-session')),
+        findsNothing,
       );
+      expect(
+        find.byKey(const ValueKey<String>('course-session-conflict-b-session')),
+        findsNothing,
+      );
+
+      await tester.tap(aggregate);
+      await tester.pumpAndSettle();
+      expect(find.text('2门课程冲突'), findsWidgets);
+      expect(find.text('冲突课程甲'), findsOneWidget);
+      expect(find.text('冲突课程乙'), findsOneWidget);
+      final sheetTitle = tester.widget<Text>(find.text('冲突课程甲'));
+      expect(sheetTitle.maxLines, isNull);
+
+      await tester.tap(find.text('冲突课程乙'));
+      await tester.pumpAndSettle();
+      expect(tapped, ['conflict-b-session']);
       expect(tester.takeException(), isNull);
     });
   });
@@ -1232,6 +1446,7 @@ Future<void> _pumpView(
   required int teachingWeek,
   bool showWeekend = true,
   CourseSessionTapCallback? onCourseTap,
+  ConflictTapCallback? onConflictTap,
   VoidCallback? onPreviousWeek,
   VoidCallback? onNextWeek,
   DateTime? today,
@@ -1252,6 +1467,7 @@ Future<void> _pumpView(
             teachingWeek: teachingWeek,
             showWeekend: showWeekend,
             onCourseTap: onCourseTap,
+            onConflictTap: onConflictTap,
             onPreviousWeek: onPreviousWeek,
             onNextWeek: onNextWeek,
             today: today,

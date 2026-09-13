@@ -8,7 +8,12 @@ import 'package:schedulr/features/timetable/domain/timetable_models.dart';
 void main() {
   testWidgets('target 参数固定读取指定课表而不是全局 current', (tester) async {
     final current = _timetable(id: 'current', timetableName: '我的课表');
-    final target = _timetable(id: 'target', timetableName: '小明');
+    final target = _timetable(
+      id: 'target',
+      timetableName: '小明',
+      academicYear: '2031-2032',
+      term: '2',
+    );
 
     await tester.pumpWidget(
       ProviderScope(
@@ -31,6 +36,16 @@ void main() {
     expect(find.text('导入到'), findsOneWidget);
     expect(find.text('小明'), findsOneWidget);
     expect(find.text('我的课表'), findsNothing);
+    final yearField = tester.widget<TextField>(
+      find.byWidgetPredicate(
+        (widget) => widget is TextField && widget.decoration?.labelText == '学年',
+      ),
+    );
+    expect(yearField.controller!.text, target.semester.academicYear);
+    final termButton = tester.widget<SegmentedButton<int>>(
+      find.byType(SegmentedButton<int>).first,
+    );
+    expect(termButton.selected, {int.parse(target.semester.term)});
   });
 
   testWidgets('不存在的 target 显示明确错误', (tester) async {
@@ -64,12 +79,14 @@ class TestApp extends StatelessWidget {
 SemesterTimetable _timetable({
   required String id,
   required String timetableName,
+  String academicYear = '2026-2027',
+  String term = '1',
 }) {
   return SemesterTimetable(
     semester: Semester(
       id: id,
-      academicYear: '2026-2027',
-      term: '1',
+      academicYear: academicYear,
+      term: term,
       name: '2026-2027 第一学期',
       timetableName: timetableName,
       startDate: DateTime(2026, 9, 7),

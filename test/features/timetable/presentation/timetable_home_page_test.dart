@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -11,6 +12,56 @@ import 'package:schedulr/features/timetable/presentation/weekly_timetable_view.d
 
 void main() {
   group('TimetableHomePage', () {
+    testWidgets('iOS 使用 Cupertino 导航、添加按钮且没有 FAB', (tester) async {
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 16),
+        initialTimetable: _timetable(),
+        platform: TargetPlatform.iOS,
+      );
+      addTearDown(harness.dispose);
+
+      expect(find.byType(CupertinoNavigationBar), findsOneWidget);
+      expect(find.byKey(const ValueKey('ios-add-course')), findsOneWidget);
+      expect(find.byType(FloatingActionButton), findsNothing);
+      expect(find.byType(PopupMenuButton<String>), findsNothing);
+    });
+
+    testWidgets('iOS 更多操作使用 CupertinoActionSheet', (tester) async {
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 16),
+        initialTimetable: _timetable(),
+        platform: TargetPlatform.iOS,
+      );
+      addTearDown(harness.dispose);
+
+      await tester.tap(find.byKey(const ValueKey('ios-home-actions')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CupertinoActionSheet), findsOneWidget);
+      expect(find.text('导入课表'), findsOneWidget);
+      expect(find.text('设置'), findsOneWidget);
+    });
+
+    testWidgets('iOS 课表切换为 Cupertino sheet，添加方式为 action sheet', (tester) async {
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 16),
+        initialTimetable: _timetable(),
+        platform: TargetPlatform.iOS,
+      );
+      addTearDown(harness.dispose);
+
+      await tester.tap(find.byKey(const ValueKey('timetable-title-button')));
+      await tester.pumpAndSettle();
+      expect(find.text('选择课程表'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('add-timetable')));
+      await tester.pumpAndSettle();
+      expect(find.byType(CupertinoActionSheet), findsOneWidget);
+      expect(find.text('新建空白'), findsOneWidget);
+    });
+
     testWidgets('标题显示当前课表名称并提供切换语义', (tester) async {
       final semantics = tester.ensureSemantics();
       final harness = await _pumpHome(
@@ -331,6 +382,53 @@ void main() {
       expect(find.textContaining('9/14 - 9/20'), findsOneWidget);
     });
 
+    testWidgets('跟随今天会响应日期变化，显式周不会被日期刷新拉回', (tester) async {
+      final date = ValueNotifier(DateTime(2026, 9, 16));
+      addTearDown(date.dispose);
+      late void Function() invalidateDate;
+      final controller = StreamController<SemesterTimetable?>();
+      final semestersController = StreamController<List<Semester>>();
+      addTearDown(controller.close);
+      addTearDown(semestersController.close);
+      final timetable = _timetable();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentDateProvider.overrideWith((ref) {
+              invalidateDate = ref.invalidateSelf;
+              date.addListener(invalidateDate);
+              ref.onDispose(() => date.removeListener(invalidateDate));
+              return date.value;
+            }),
+            currentTimetableProvider.overrideWith((ref) => controller.stream),
+            timetablesProvider.overrideWith(
+              (ref) => semestersController.stream,
+            ),
+          ],
+          child: const MaterialApp(home: TimetableHomePage()),
+        ),
+      );
+      controller.add(timetable);
+      semestersController.add([timetable.semester]);
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('第 2 周 · 今天'), findsOneWidget);
+
+      date.value = DateTime(2026, 9, 23);
+      await tester.pump();
+      expect(find.text('第 3 周 · 今天'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('下一周'));
+      await tester.pump();
+      expect(find.text('第 4 周'), findsOneWidget);
+
+      date.value = DateTime(2026, 9, 30);
+      await tester.pump();
+      expect(find.text('第 4 周'), findsOneWidget);
+      expect(find.text('第 4 周 · 今天'), findsNothing);
+      expect(find.textContaining('回到本周'), findsOneWidget);
+    });
+
     testWidgets('首页固定显示周一至周日且没有周末切换按钮', (tester) async {
       final course = Course(
         id: 'weekend-course',
@@ -615,6 +713,7 @@ Future<_HomeHarness> _pumpHome(
   SelectTimetableCallback? onSelect,
   DeleteTimetableCallback? onDelete,
   ClearTimetableImportCookiesCallback? onClearCookies,
+  TargetPlatform platform = TargetPlatform.android,
 }) async {
   final controller = StreamController<SemesterTimetable?>();
   final semestersController = StreamController<List<Semester>>();
@@ -626,6 +725,7 @@ Future<_HomeHarness> _pumpHome(
         timetablesProvider.overrideWith((ref) => semestersController.stream),
       ],
       child: MaterialApp(
+        theme: ThemeData(platform: platform),
         home: TimetableHomePage(
           createBlankTimetable: onCreate,
           renameTimetable: onRename,

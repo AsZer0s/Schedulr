@@ -1,4 +1,7 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+
+import '../../../app/widgets/adaptive_scaffold.dart';
 
 import '../../../core/platform/adaptive_ui.dart';
 import '../../../core/time/week_set.dart';
@@ -7,12 +10,14 @@ import '../../timetable/domain/timetable_models.dart';
 class CourseDetailPage extends StatefulWidget {
   const CourseDetailPage({
     required this.course,
+    this.periodDefinitions = const [],
     this.onEdit,
     this.onDelete,
     super.key,
   });
 
   final CourseWithSessions course;
+  final List<PeriodDefinition> periodDefinitions;
   final Future<void> Function()? onEdit;
   final Future<void> Function()? onDelete;
 
@@ -50,31 +55,51 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
     final teacher = _displayValue(course.teacher);
     final notes = _displayValue(course.notes);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('课程详情'),
-        actions: [
-          if (widget.onEdit != null)
-            IconButton(
-              key: const Key('course-detail-edit'),
-              tooltip: '编辑课程',
-              onPressed: _isDeleting ? null : widget.onEdit,
-              icon: const Icon(Icons.edit_outlined),
-            ),
-          if (widget.onDelete != null)
-            IconButton(
-              key: const Key('course-detail-delete'),
-              tooltip: '删除课程',
-              onPressed: _isDeleting ? null : _delete,
-              icon: _isDeleting
-                  ? const SizedBox.square(
-                      dimension: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.delete_outline_rounded),
-            ),
-        ],
-      ),
+    final isCupertino = usesCupertinoConventions(context);
+    final actions = [
+      if (widget.onEdit != null)
+        isCupertino
+            ? CupertinoButton(
+                key: const Key('course-detail-edit'),
+                padding: EdgeInsets.zero,
+                onPressed: _isDeleting ? null : widget.onEdit,
+                child: const Icon(CupertinoIcons.pencil),
+              )
+            : IconButton(
+                key: const Key('course-detail-edit'),
+                tooltip: '编辑课程',
+                onPressed: _isDeleting ? null : widget.onEdit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+      if (widget.onDelete != null)
+        isCupertino
+            ? CupertinoButton(
+                key: const Key('course-detail-delete'),
+                padding: EdgeInsets.zero,
+                onPressed: _isDeleting ? null : _delete,
+                child: _isDeleting
+                    ? const CupertinoActivityIndicator()
+                    : const Icon(CupertinoIcons.delete),
+              )
+            : IconButton(
+                key: const Key('course-detail-delete'),
+                tooltip: '删除课程',
+                onPressed: _isDeleting ? null : _delete,
+                icon: _isDeleting
+                    ? const SizedBox.square(
+                        dimension: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.delete_outline_rounded),
+              ),
+    ];
+
+    return AdaptiveScaffold(
+      title: const Text('课程详情'),
+      actions: isCupertino ? const [] : actions,
+      cupertinoTrailing: isCupertino
+          ? Row(mainAxisSize: MainAxisSize.min, children: actions)
+          : null,
       body: SafeArea(
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
@@ -140,6 +165,8 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
                 _SessionDetailCard(
                   index: index,
                   session: widget.course.sessions[index],
+                  periodDefinitions: widget.periodDefinitions,
+                  semesterId: widget.course.course.semesterId,
                 ),
                 const SizedBox(height: 10),
               ],
@@ -181,10 +208,17 @@ class _CourseDetailPageState extends State<CourseDetailPage> {
 }
 
 class _SessionDetailCard extends StatelessWidget {
-  const _SessionDetailCard({required this.index, required this.session});
+  const _SessionDetailCard({
+    required this.index,
+    required this.session,
+    required this.periodDefinitions,
+    required this.semesterId,
+  });
 
   final int index;
   final CourseSession session;
+  final List<PeriodDefinition> periodDefinitions;
+  final String semesterId;
 
   @override
   Widget build(BuildContext context) {
@@ -203,9 +237,7 @@ class _SessionDetailCard extends StatelessWidget {
             _DetailLine(
               icon: Icons.schedule_outlined,
               label: '时间',
-              value:
-                  '星期${_weekdayName(session.weekday)} '
-                  '第${session.startPeriod}-${session.endPeriod}节',
+              value: _timeLabel(),
             ),
             const SizedBox(height: 8),
             _DetailLine(
@@ -223,6 +255,22 @@ class _SessionDetailCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _timeLabel() {
+    final base =
+        '星期${_weekdayName(session.weekday)} '
+        '第${session.startPeriod}-${session.endPeriod}节';
+    final byPeriod = <int, PeriodDefinition>{
+      for (final definition in periodDefinitions)
+        if (definition.semesterId == semesterId) definition.period: definition,
+    };
+    final start = byPeriod[session.startPeriod];
+    final end = byPeriod[session.endPeriod];
+    if (start == null || end == null || start.startMinutes >= end.endMinutes) {
+      return '$base · 具体时间未配置';
+    }
+    return '$base · ${start.startTime}–${end.endTime}';
   }
 
   static String _weekdayName(int weekday) {

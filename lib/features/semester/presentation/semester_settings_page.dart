@@ -1,5 +1,9 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+
+import '../../../app/widgets/adaptive_scaffold.dart';
+import '../../../core/platform/adaptive_ui.dart';
 
 import '../../timetable/domain/semester.dart';
 
@@ -50,8 +54,8 @@ class _SemesterSettingsPageState extends State<SemesterSettingsPage> {
   }
 
   Future<void> _selectStartDate() async {
-    final selected = await showDatePicker(
-      context: context,
+    final selected = await showAdaptiveDatePicker(
+      context,
       firstDate: DateTime(2020),
       lastDate: DateTime(2040),
       initialDate: _startDate,
@@ -85,61 +89,77 @@ class _SemesterSettingsPageState extends State<SemesterSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('学期设置')),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              TextFormField(
-                controller: _nameController,
-                decoration: const InputDecoration(labelText: '学期名称'),
-                validator: _required,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _academicYearController,
-                decoration: const InputDecoration(labelText: '学年'),
-                validator: _required,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _termController,
-                decoration: const InputDecoration(labelText: '学期'),
-                validator: _required,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _weeksController,
-                keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: '教学周数'),
-                validator: (value) {
-                  final weeks = int.tryParse(value ?? '');
-                  if (weeks == null || weeks < 1 || weeks > 40) {
-                    return '请输入 1 到 40 之间的教学周数';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              ListTile(
-                contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                title: const Text('开学日期'),
-                subtitle: Text(DateFormat('yyyy年M月d日').format(_startDate)),
-                trailing: const Icon(Icons.calendar_month_outlined),
-                onTap: _selectStartDate,
-              ),
-              const SizedBox(height: 24),
-              FilledButton.icon(
-                onPressed: _isSaving ? null : _save,
-                icon: const Icon(Icons.save_outlined),
-                label: Text(_isSaving ? '正在保存…' : '保存学期设置'),
-              ),
-            ],
+    final isCupertino = usesCupertinoConventions(context);
+    final body = Form(
+      key: _formKey,
+      child: ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          TextFormField(
+            controller: _nameController,
+            decoration: const InputDecoration(labelText: '学期名称'),
+            validator: _required,
           ),
-        ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _academicYearController,
+            decoration: const InputDecoration(labelText: '学年'),
+            validator: _required,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _termController,
+            decoration: const InputDecoration(labelText: '学期'),
+            validator: _required,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: _weeksController,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: '教学周数'),
+            validator: (value) {
+              final weeks = int.tryParse(value ?? '');
+              if (weeks == null || weeks < 1 || weeks > 40) {
+                return '请输入 1 到 40 之间的教学周数';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 12),
+          ListTile(
+            key: const ValueKey('semester-start-date'),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+            title: const Text('开学日期'),
+            subtitle: Text(DateFormat('yyyy年M月d日').format(_startDate)),
+            trailing: Icon(
+              isCupertino
+                  ? CupertinoIcons.calendar
+                  : Icons.calendar_month_outlined,
+            ),
+            onTap: _selectStartDate,
+          ),
+          if (!isCupertino) ...[
+            const SizedBox(height: 24),
+            FilledButton.icon(
+              key: const ValueKey('semester-save-button'),
+              onPressed: _isSaving ? null : _save,
+              icon: const Icon(Icons.save_outlined),
+              label: Text(_isSaving ? '正在保存…' : '保存学期设置'),
+            ),
+          ],
+        ],
+      ),
+    );
+    return AdaptiveScaffold(
+      title: const Text('学期设置'),
+      body: body,
+      cupertinoTrailing: CupertinoButton(
+        key: const ValueKey('semester-save-button'),
+        padding: EdgeInsets.zero,
+        onPressed: _isSaving ? null : _save,
+        child: _isSaving
+            ? const CupertinoActivityIndicator()
+            : const Text('保存'),
       ),
     );
   }

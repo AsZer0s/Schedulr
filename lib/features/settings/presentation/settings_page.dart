@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/widgets/adaptive_scaffold.dart';
+
 class SettingsPage extends StatelessWidget {
   const SettingsPage({
     required this.onEditSemester,
@@ -15,8 +17,8 @@ class SettingsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      appBar: AppBar(title: const Text('设置')),
+    return AdaptiveScaffold(
+      title: const Text('设置'),
       body: ListView(
         children: [
           const _SectionHeader('课程表'),
@@ -53,7 +55,7 @@ class SettingsPage extends StatelessWidget {
               '删除全部本地数据',
               style: TextStyle(color: theme.colorScheme.error),
             ),
-            subtitle: const Text('删除所有课程和学期，此操作不可撤销。'),
+            subtitle: const Text('删除所有课程和学期，并重新进行首次设置。'),
             onTap: () async => onClearAllData(),
           ),
           const _SectionHeader('正方教务导入'),

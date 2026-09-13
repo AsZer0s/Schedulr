@@ -11,12 +11,28 @@ typedef CourseSessionTapCallback = void Function(
   CourseSession session,
 );
 
+typedef ConflictTapCallback = void Function(
+  List<CourseSessionViewEntry> entries,
+);
+
+@immutable
+class CourseSessionViewEntry {
+  const CourseSessionViewEntry({
+    required this.courseWithSessions,
+    required this.session,
+  });
+
+  final CourseWithSessions courseWithSessions;
+  final CourseSession session;
+}
+
 class WeeklyTimetableView extends StatefulWidget {
   const WeeklyTimetableView({
     required this.timetable,
     required this.teachingWeek,
     this.showWeekend = true,
     this.onCourseTap,
+    this.onConflictTap,
     this.onPreviousWeek,
     this.onNextWeek,
     this.today,
@@ -46,6 +62,12 @@ class WeeklyTimetableView extends StatefulWidget {
   static const Key todayColumnKey = ValueKey<String>(
     'weekly-timetable-today-column',
   );
+
+  static Key courseTitleKey(String sessionId) =>
+      ValueKey<String>('course-title-$sessionId');
+
+  static Key conflictCardKey(int weekday, int startPeriod, int endPeriod) =>
+      ValueKey<String>('course-conflict-$weekday-$startPeriod-$endPeriod');
 
   static Key weekdayHeaderKey(int weekday) =>
       ValueKey<String>('weekly-timetable-weekday-header-$weekday');
@@ -81,6 +103,7 @@ class WeeklyTimetableView extends StatefulWidget {
   final int teachingWeek;
   final bool showWeekend;
   final CourseSessionTapCallback? onCourseTap;
+  final ConflictTapCallback? onConflictTap;
   final VoidCallback? onPreviousWeek;
   final VoidCallback? onNextWeek;
   final DateTime? today;
@@ -104,6 +127,16 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
   static const double _minimumAxisWidth = 60;
   static const double _groupHeaderHeight = 18;
   static const double _baseMinimumRowHeight = 50;
+  static const double _minimumReadableCourseWidth = 40;
+  static const TextStyle _courseTitleStyle = TextStyle(
+    fontSize: 10.5,
+    fontWeight: FontWeight.w700,
+    height: 1,
+  );
+  static const TextStyle _courseMetadataStyle = TextStyle(
+    fontSize: 9,
+    height: 1,
+  );
 
   final ScrollController _headerHorizontalController = ScrollController();
   final ScrollController _gridHorizontalController = ScrollController();
@@ -284,7 +317,7 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
     }
 
     final entries = resolution.entries;
-    final placements = _placeEntries(entries);
+    final placementGroups = _placeEntryGroups(entries);
     final dates = [
       for (var weekday = DateTime.monday; weekday <= weekdays; weekday++)
         dateForTeachingWeekday(
@@ -329,6 +362,8 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
             final gridWidth = gridViewportWidth;
             final groupHeaderCount = _nonEmptyGroupCount(periods);
             final textScale = _effectiveTextScale(context);
+            final courseTextScaler = MediaQuery.textScalerOf(context)
+                .clamp(maxScaleFactor: 1.2);
             final minimumRowHeight =
                 _baseMinimumRowHeight + (textScale - 1) * 26;
             final maximumRowHeight = math.max(
@@ -342,13 +377,35 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
             final fittingRowHeight = periods.isEmpty
                 ? maximumRowHeight
                 : availableRowsHeight / periods.length;
-            final rowHeight = fittingRowHeight.clamp(
+            final initialRowHeight = fittingRowHeight.clamp(
               minimumRowHeight,
               maximumRowHeight,
             );
+            final renderItems = _resolveRenderItems(
+              placementGroups: placementGroups,
+              dayWidth: effectiveDayWidth,
+              minimumReadableWidth: _minimumReadableCourseWidth,
+            );
+            final rowHeights = List<double>.filled(
+              periods.length,
+              initialRowHeight,
+            );
+            _growRowsForContent(
+              periods: periods,
+              rowHeights: rowHeights,
+              renderItems: renderItems,
+              dayWidth: effectiveDayWidth,
+              textDirection: Directionality.of(context),
+              textScaler: courseTextScaler,
+              titleStyle: _courseTitleStyle,
+            );
+            _distributeViewportSurplus(
+              rowHeights: rowHeights,
+              availableRowsHeight: availableRowsHeight,
+            );
             final metrics = _TimetableVerticalMetrics(
               periods: periods,
-              rowHeight: rowHeight,
+              rowHeights: rowHeights,
               groupHeaderHeight: _groupHeaderHeight,
             );
             final canScrollHorizontally = gridWidth - gridViewportWidth > 0.01;
@@ -430,14 +487,24 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
                         ),
                       ),
                     ),
-                    for (final placement in placements)
-                      _CourseCardPositioned(
-                        placement: placement,
-                        teachingWeek: widget.teachingWeek,
-                        dayWidth: effectiveDayWidth,
-                        metrics: metrics,
-                        onTap: widget.onCourseTap,
-                      ),
+                    for (final item in renderItems)
+                      if (item.isAggregate)
+                        _ConflictCardPositioned(
+                          item: item,
+                          teachingWeek: widget.teachingWeek,
+                          dayWidth: effectiveDayWidth,
+                          metrics: metrics,
+                          onConflictTap: widget.onConflictTap,
+                          onCourseTap: widget.onCourseTap,
+                        )
+                      else
+                        _CourseCardPositioned(
+                          item: item,
+                          teachingWeek: widget.teachingWeek,
+                          dayWidth: effectiveDayWidth,
+                          metrics: metrics,
+                          onTap: widget.onCourseTap,
+                        ),
                   ],
                 ),
               ),
@@ -775,8 +842,62 @@ class _Placement {
   final int columnCount;
 }
 
-List<_Placement> _placeEntries(List<_VisibleEntry> entries) {
-  final placements = <_Placement>[];
+class _PlacementGroup {
+  const _PlacementGroup({
+    required this.entries,
+    required this.placements,
+    required this.startRow,
+    required this.endRow,
+    required this.columnCount,
+  });
+
+  final List<_VisibleEntry> entries;
+  final List<_Placement> placements;
+  final int startRow;
+  final int endRow;
+  final int columnCount;
+}
+
+class _RenderItem {
+  _RenderItem.course(_Placement coursePlacement)
+    : placement = coursePlacement,
+      aggregateEntries = const [],
+      weekday = coursePlacement.entry.session.weekday,
+      startRow = coursePlacement.entry.startRow,
+      endRow = coursePlacement.entry.endRow,
+      column = coursePlacement.column,
+      columnCount = coursePlacement.columnCount;
+
+  const _RenderItem.aggregate({
+    required this.aggregateEntries,
+    required this.weekday,
+    required this.startRow,
+    required this.endRow,
+  }) : placement = null,
+       column = 0,
+       columnCount = 1;
+
+  final _Placement? placement;
+  final List<_VisibleEntry> aggregateEntries;
+  final int weekday;
+  final int startRow;
+  final int endRow;
+  final int column;
+  final int columnCount;
+
+  bool get isAggregate => placement == null;
+
+  _VisibleEntry get entry => placement!.entry;
+
+  double cardWidth(double dayWidth) {
+    final columnWidth = dayWidth / columnCount;
+    final gap = _courseCardGap(columnWidth);
+    return math.max(1, columnWidth - gap * 2);
+  }
+}
+
+List<_PlacementGroup> _placeEntryGroups(List<_VisibleEntry> entries) {
+  final groups = <_PlacementGroup>[];
   for (var weekday = DateTime.monday; weekday <= DateTime.sunday; weekday++) {
     final dayEntries = [
       for (final entry in entries)
@@ -811,20 +932,197 @@ List<_Placement> _placeEntries(List<_VisibleEntry> entries) {
         }
         columns.add(column);
       }
-      for (var index = 0; index < group.length; index++) {
-        placements.add(
+      final placements = <_Placement>[
+        for (var index = 0; index < group.length; index++)
           _Placement(
             entry: group[index],
             column: columns[index],
             columnCount: columnEndRows.length,
           ),
-        );
-      }
+      ];
+      groups.add(
+        _PlacementGroup(
+          entries: group,
+          placements: placements,
+          startRow: group.first.startRow,
+          endRow: occupiedThrough,
+          columnCount: columnEndRows.length,
+        ),
+      );
       groupStart = groupEnd;
     }
   }
-  return placements;
+  return groups;
 }
+
+List<_RenderItem> _resolveRenderItems({
+  required List<_PlacementGroup> placementGroups,
+  required double dayWidth,
+  required double minimumReadableWidth,
+}) {
+  return [
+    for (final group in placementGroups)
+      if (group.columnCount > 1 &&
+          dayWidth / group.columnCount < minimumReadableWidth)
+        _RenderItem.aggregate(
+          aggregateEntries: group.entries,
+          weekday: group.entries.first.session.weekday,
+          startRow: group.startRow,
+          endRow: group.endRow,
+        )
+      else
+        for (final placement in group.placements) _RenderItem.course(placement),
+  ];
+}
+
+void _growRowsForContent({
+  required List<_DisplayPeriod> periods,
+  required List<double> rowHeights,
+  required List<_RenderItem> renderItems,
+  required double dayWidth,
+  required TextDirection textDirection,
+  required TextScaler textScaler,
+  required TextStyle titleStyle,
+}) {
+  for (final item in renderItems) {
+    if (item.isAggregate) {
+      continue;
+    }
+    final entry = item.entry;
+    final cardWidth = item.cardWidth(dayWidth);
+    final padding = _courseCardPadding(cardWidth);
+    final contentWidth = math.max(1.0, cardWidth - padding * 2);
+    final titleHeight = _measureText(
+      entry.courseWithSessions.course.name,
+      style: titleStyle,
+      textDirection: textDirection,
+      textScaler: textScaler,
+      maxWidth: contentWidth,
+    ).height;
+    final metadataStyle = _WeeklyTimetableViewState._courseMetadataStyle;
+    final metadataLineHeight = _measureText(
+      'Hg',
+      style: metadataStyle,
+      textDirection: textDirection,
+      textScaler: textScaler,
+      maxWidth: contentWidth,
+      maxLines: 1,
+    ).height;
+    var optionalMetadataHeight = 0.0;
+    final teacher = entry.courseWithSessions.course.teacher?.trim();
+    if (teacher?.isNotEmpty == true &&
+        _fitsSingleLine(
+          text: teacher!,
+          style: metadataStyle,
+          textDirection: textDirection,
+          textScaler: textScaler,
+          maxWidth: contentWidth,
+        )) {
+      optionalMetadataHeight += metadataLineHeight;
+    }
+    final compactLocation = compactLocationLabel(entry.session.location);
+    if (compactLocation != null &&
+        _fitsSingleLine(
+          text: compactLocation,
+          style: metadataStyle,
+          textDirection: textDirection,
+          textScaler: textScaler,
+          maxWidth: contentWidth,
+        )) {
+      optionalMetadataHeight += metadataLineHeight;
+    }
+    final columnWidth = dayWidth / item.columnCount;
+    final gap = _courseCardGap(columnWidth);
+    final requiredOuterHeight =
+        titleHeight + padding * 2 + gap * 2 + optionalMetadataHeight;
+    final currentSpanHeight = _rowSpanHeight(
+      periods: periods,
+      rowHeights: rowHeights,
+      startRow: item.startRow,
+      endRow: item.endRow,
+    );
+    final deficit = requiredOuterHeight - currentSpanHeight;
+    if (deficit <= 0.01) {
+      continue;
+    }
+    final coveredRows = item.endRow - item.startRow + 1;
+    final increment = deficit / coveredRows;
+    for (var row = item.startRow; row <= item.endRow; row++) {
+      rowHeights[row] += increment;
+    }
+  }
+}
+
+double _rowSpanHeight({
+  required List<_DisplayPeriod> periods,
+  required List<double> rowHeights,
+  required int startRow,
+  required int endRow,
+}) {
+  var result = 0.0;
+  for (var row = startRow; row <= endRow; row++) {
+    result += rowHeights[row];
+    if (row > startRow && periods[row - 1].group != periods[row].group) {
+      result += _WeeklyTimetableViewState._groupHeaderHeight;
+    }
+  }
+  return result;
+}
+
+TextPainter _measureText(
+  String text, {
+  required TextStyle style,
+  required TextDirection textDirection,
+  required TextScaler textScaler,
+  required double maxWidth,
+  int? maxLines,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: textDirection,
+    textScaler: textScaler,
+    maxLines: maxLines,
+  )..layout(maxWidth: math.max(1, maxWidth));
+  return painter;
+}
+
+bool _fitsSingleLine({
+  required String text,
+  required TextStyle style,
+  required TextDirection textDirection,
+  required TextScaler textScaler,
+  required double maxWidth,
+}) {
+  final painter = _measureText(
+    text,
+    style: style,
+    textDirection: textDirection,
+    textScaler: textScaler,
+    maxWidth: maxWidth,
+    maxLines: 1,
+  );
+  return !painter.didExceedMaxLines && painter.width <= maxWidth + 0.01;
+}
+
+void _distributeViewportSurplus({
+  required List<double> rowHeights,
+  required double availableRowsHeight,
+}) {
+  if (rowHeights.isEmpty) {
+    return;
+  }
+  final usedHeight = rowHeights.fold<double>(0, (sum, height) => sum + height);
+  final surplus = availableRowsHeight - usedHeight;
+  if (surplus <= 0.01) {
+    return;
+  }
+  final extra = surplus / rowHeights.length;
+  for (var index = 0; index < rowHeights.length; index++) {
+    rowHeights[index] += extra;
+  }
+}
+
+double _courseCardGap(double columnWidth) => columnWidth < 32 ? 0.5 : 2.0;
 
 class _WeekdayHeader extends StatelessWidget {
   const _WeekdayHeader({
@@ -921,9 +1219,10 @@ class _GroupHeaderMetric {
 class _TimetableVerticalMetrics {
   _TimetableVerticalMetrics({
     required List<_DisplayPeriod> periods,
-    required this.rowHeight,
+    required List<double> rowHeights,
     required this.groupHeaderHeight,
-  }) {
+  }) : rowHeights = List<double>.unmodifiable(rowHeights) {
+    assert(periods.length == rowHeights.length);
     var offset = 0.0;
     for (var index = 0; index < periods.length; index++) {
       final startsGroup =
@@ -944,13 +1243,13 @@ class _TimetableVerticalMetrics {
         offset += groupHeaderHeight;
       }
       periodTops.add(offset);
-      offset += rowHeight;
+      offset += rowHeights[index];
       periodBottoms.add(offset);
     }
     totalHeight = offset;
   }
 
-  final double rowHeight;
+  final List<double> rowHeights;
   final double groupHeaderHeight;
   final List<double> periodTops = [];
   final List<double> periodBottoms = [];
@@ -960,6 +1259,8 @@ class _TimetableVerticalMetrics {
   double periodTop(int row) => periodTops[row];
 
   double periodBottom(int row) => periodBottoms[row];
+
+  double rowHeight(int row) => rowHeights[row];
 }
 
 class _PeriodAxis extends StatelessWidget {
@@ -1029,7 +1330,7 @@ class _PeriodAxis extends StatelessWidget {
               left: 0,
               right: 0,
               top: metrics.periodTop(index),
-              height: metrics.rowHeight,
+              height: metrics.rowHeight(index),
               child: _PeriodAxisCell(period: periods[index]),
             ),
         ],
@@ -1122,14 +1423,14 @@ String _periodGroupLabel(PeriodGroup group) {
 
 class _CourseCardPositioned extends StatelessWidget {
   const _CourseCardPositioned({
-    required this.placement,
+    required this.item,
     required this.teachingWeek,
     required this.dayWidth,
     required this.metrics,
     required this.onTap,
   });
 
-  final _Placement placement;
+  final _RenderItem item;
   final int teachingWeek;
   final double dayWidth;
   final _TimetableVerticalMetrics metrics;
@@ -1137,12 +1438,15 @@ class _CourseCardPositioned extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final placement = item.placement!;
     final entry = placement.entry;
     final session = entry.session;
     final courseWithSessions = entry.courseWithSessions;
     final course = courseWithSessions.course;
     final columnWidth = dayWidth / placement.columnCount;
-    final gap = columnWidth < 32 ? 0.5 : 2.0;
+    final gap = _courseCardGap(columnWidth);
+    final cardWidth = math.max(1.0, columnWidth - gap * 2);
+    final padding = _courseCardPadding(cardWidth);
     final color = Color(course.colorValue);
     final foreground =
         ThemeData.estimateBrightnessForColor(color) == Brightness.dark
@@ -1169,7 +1473,7 @@ class _CourseCardPositioned extends StatelessWidget {
           placement.column * columnWidth +
           gap,
       top: top + gap,
-      width: math.max(1, columnWidth - gap * 2),
+      width: cardWidth,
       height: math.max(1, bottom - top - gap * 2),
       child: Semantics(
         container: true,
@@ -1179,7 +1483,7 @@ class _CourseCardPositioned extends StatelessWidget {
         hint: onTap == null ? null : '点击查看课程',
         child: Material(
           color: color,
-          borderRadius: BorderRadius.circular(columnWidth < 36 ? 4 : 8),
+          borderRadius: BorderRadius.circular(cardWidth < 36 ? 4 : 8),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onTap == null
@@ -1187,17 +1491,57 @@ class _CourseCardPositioned extends StatelessWidget {
                 : () => onTap!(courseWithSessions, session),
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final padding = constraints.maxWidth < 36
-                    ? 1.5
-                    : constraints.maxWidth < 60
-                    ? 2.5
-                    : 4.0;
-                final showMetadata = constraints.maxWidth >= 28;
-                final metadataStyle = TextStyle(
-                  color: foreground.withValues(alpha: 0.92),
-                  fontSize: 9,
-                  height: 1.0,
+                final textScaler = MediaQuery.textScalerOf(context)
+                    .clamp(maxScaleFactor: 1.2);
+                final titleStyle = _WeeklyTimetableViewState._courseTitleStyle
+                    .copyWith(color: foreground);
+                final metadataStyle = _WeeklyTimetableViewState
+                    ._courseMetadataStyle
+                    .copyWith(color: foreground.withValues(alpha: 0.92));
+                final contentWidth = math.max(
+                  1.0,
+                  constraints.maxWidth - padding * 2,
                 );
+                final titleHeight = _measureText(
+                  course.name,
+                  style: titleStyle,
+                  textDirection: Directionality.of(context),
+                  textScaler: textScaler,
+                  maxWidth: contentWidth,
+                ).height;
+                final metadataLineHeight = _measureText(
+                  'Hg',
+                  style: metadataStyle,
+                  textDirection: Directionality.of(context),
+                  textScaler: textScaler,
+                  maxWidth: contentWidth,
+                  maxLines: 1,
+                ).height;
+                var remainingHeight =
+                    constraints.maxHeight - padding * 2 - titleHeight;
+                final showTeacher =
+                    teacher?.isNotEmpty == true &&
+                    remainingHeight + 0.01 >= metadataLineHeight &&
+                    _fitsSingleLine(
+                      text: teacher!,
+                      style: metadataStyle,
+                      textDirection: Directionality.of(context),
+                      textScaler: textScaler,
+                      maxWidth: contentWidth,
+                    );
+                if (showTeacher) {
+                  remainingHeight -= metadataLineHeight;
+                }
+                final showLocation =
+                    compactLocation != null &&
+                    remainingHeight + 0.01 >= metadataLineHeight &&
+                    _fitsSingleLine(
+                      text: compactLocation,
+                      style: metadataStyle,
+                      textDirection: Directionality.of(context),
+                      textScaler: textScaler,
+                      maxWidth: contentWidth,
+                    );
                 return Padding(
                   padding: EdgeInsets.all(padding),
                   child: MediaQuery.withClampedTextScaling(
@@ -1206,33 +1550,30 @@ class _CourseCardPositioned extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
+                          key: WeeklyTimetableView.courseTitleKey(session.id),
                           course.name,
-                          maxLines: showMetadata ? 1 : 3,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            height: 1.0,
-                          ).copyWith(color: foreground),
+                          softWrap: true,
+                          maxLines: null,
+                          style: titleStyle,
                         ),
-                        if (showMetadata && teacher?.isNotEmpty == true)
+                        if (showTeacher)
                           Text(
                             key: WeeklyTimetableView.courseTeacherKey(
                               session.id,
                             ),
-                            teacher!,
+                            teacher,
+                            softWrap: false,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: metadataStyle,
                           ),
-                        if (showMetadata && compactLocation != null)
+                        if (showLocation)
                           Text(
                             key: WeeklyTimetableView.courseLocationKey(
                               session.id,
                             ),
                             compactLocation,
+                            softWrap: false,
                             maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
                             style: metadataStyle,
                           ),
                       ],
@@ -1246,6 +1587,165 @@ class _CourseCardPositioned extends StatelessWidget {
       ),
     );
   }
+}
+
+double _courseCardPadding(double width) {
+  return width < 36
+      ? 1.5
+      : width < 60
+      ? 2.5
+      : 4.0;
+}
+
+class _ConflictCardPositioned extends StatelessWidget {
+  const _ConflictCardPositioned({
+    required this.item,
+    required this.teachingWeek,
+    required this.dayWidth,
+    required this.metrics,
+    required this.onConflictTap,
+    required this.onCourseTap,
+  });
+
+  final _RenderItem item;
+  final int teachingWeek;
+  final double dayWidth;
+  final _TimetableVerticalMetrics metrics;
+  final ConflictTapCallback? onConflictTap;
+  final CourseSessionTapCallback? onCourseTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = [
+      for (final entry in item.aggregateEntries)
+        CourseSessionViewEntry(
+          courseWithSessions: entry.courseWithSessions,
+          session: entry.session,
+        ),
+    ];
+    final count = entries.length;
+    final startPeriod = item.aggregateEntries
+        .map((entry) => entry.session.startPeriod)
+        .reduce(math.min);
+    final endPeriod = item.aggregateEntries
+        .map((entry) => entry.session.endPeriod)
+        .reduce(math.max);
+    final names = entries
+        .map((entry) => entry.courseWithSessions.course.name)
+        .join('、');
+    final top = metrics.periodTop(item.startRow);
+    final bottom = metrics.periodBottom(item.endRow);
+    const gap = 2.0;
+    return Positioned(
+      key: WeeklyTimetableView.conflictCardKey(
+        item.weekday,
+        startPeriod,
+        endPeriod,
+      ),
+      left: (item.weekday - 1) * dayWidth + gap,
+      top: top + gap,
+      width: math.max(1, dayWidth - gap * 2),
+      height: math.max(1, bottom - top - gap * 2),
+      child: Semantics(
+        container: true,
+        excludeSemantics: true,
+        button: true,
+        label: '$count门课程冲突：$names',
+        hint: '点击查看全部冲突课程',
+        child: Material(
+          color: Theme.of(context).colorScheme.errorContainer,
+          borderRadius: BorderRadius.circular(8),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () {
+              final callback = onConflictTap;
+              if (callback != null) {
+                callback(entries);
+                return;
+              }
+              _showDefaultConflictSheet(
+                context,
+                entries: entries,
+                teachingWeek: teachingWeek,
+                onCourseTap: onCourseTap,
+              );
+            },
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Text(
+                  '$count门课程冲突',
+                  softWrap: true,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _showDefaultConflictSheet(
+  BuildContext context, {
+  required List<CourseSessionViewEntry> entries,
+  required int teachingWeek,
+  required CourseSessionTapCallback? onCourseTap,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) {
+      return SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+          children: [
+            Text(
+              '${entries.length}门课程冲突',
+              style: Theme.of(sheetContext).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 8),
+            for (final entry in entries)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                isThreeLine: true,
+                title: Text(entry.courseWithSessions.course.name),
+                subtitle: Text(
+                  _conflictEntryDetails(entry, teachingWeek),
+                  maxLines: null,
+                ),
+                onTap: onCourseTap == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        onCourseTap(entry.courseWithSessions, entry.session);
+                      },
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+String _conflictEntryDetails(CourseSessionViewEntry entry, int teachingWeek) {
+  final teacher = entry.courseWithSessions.course.teacher?.trim();
+  final location = entry.session.location?.trim();
+  final weeks = entry.session.weeks.toList()..sort();
+  return [
+    if (teacher?.isNotEmpty == true) teacher!,
+    if (location?.isNotEmpty == true) location!,
+    '第${entry.session.startPeriod}至${entry.session.endPeriod}节',
+    '周次：${weeks.join('、')}（当前第$teachingWeek周）',
+  ].join('\n');
 }
 
 class _TimetableGridPainter extends CustomPainter {
@@ -1305,11 +1805,23 @@ class _TimetableGridPainter extends CustomPainter {
     return oldDelegate.weekdays != weekdays ||
         oldDelegate.dayWidth != dayWidth ||
         oldDelegate.metrics.totalHeight != metrics.totalHeight ||
-        oldDelegate.metrics.rowHeight != metrics.rowHeight ||
+        !_sameDoubles(oldDelegate.metrics.rowHeights, metrics.rowHeights) ||
         oldDelegate.metrics.groupHeaderHeight != metrics.groupHeaderHeight ||
         oldDelegate.lineColor != lineColor ||
         oldDelegate.separatorColor != separatorColor;
   }
+}
+
+bool _sameDoubles(List<double> first, List<double> second) {
+  if (first.length != second.length) {
+    return false;
+  }
+  for (var index = 0; index < first.length; index++) {
+    if (first[index] != second[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 int _nonEmptyGroupCount(List<_DisplayPeriod> periods) {
