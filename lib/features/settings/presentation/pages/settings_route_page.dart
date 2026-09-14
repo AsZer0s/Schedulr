@@ -5,6 +5,8 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../core/platform/adaptive_ui.dart';
 import '../../../../core/storage/secure_session_store.dart';
+import '../../../desktop_widget/widget_providers.dart';
+import '../../../desktop_widget/widget_publisher.dart';
 import '../../../timetable/data/providers.dart';
 import '../settings_page.dart';
 
@@ -29,6 +31,8 @@ class SettingsRoutePage extends ConsumerWidget {
         );
         if (!confirmed) return;
         final repository = ref.read(timetableRepositoryProvider);
+        await WidgetSnapshotPublisher(ref.read(widgetStorageBridgeProvider))
+            .clear();
         await repository.clearAllTimetableData();
         if (!context.mounted) return;
         context.go('/onboarding');

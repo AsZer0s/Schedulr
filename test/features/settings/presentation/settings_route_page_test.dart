@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:schedulr/core/storage/app_database.dart' show AppDatabase;
+import 'package:schedulr/features/desktop_widget/widget_providers.dart';
+import 'package:schedulr/features/desktop_widget/widget_publisher.dart';
 import 'package:schedulr/features/settings/presentation/pages/settings_route_page.dart';
 import 'package:schedulr/features/timetable/data/providers.dart';
 import 'package:schedulr/features/timetable/data/timetable_repository.dart';
@@ -32,6 +34,7 @@ void main() {
         periodDefinitions: const [],
       ),
     );
+    final bridge = _RecordingWidgetBridge();
     final router = GoRouter(
       initialLocation: '/settings',
       routes: [
@@ -52,6 +55,7 @@ void main() {
         overrides: [
           timetableDatabaseProvider.overrideWithValue(database),
           timetableRepositoryProvider.overrideWithValue(repository),
+          widgetStorageBridgeProvider.overrideWithValue(bridge),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -65,7 +69,29 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await repository.getSemesters(), isEmpty);
+    expect(bridge.calls, [
+      'group:${HomeWidgetStorageBridge.appGroupId}',
+      'clear',
+    ]);
     expect(router.state.uri.path, '/onboarding');
     expect(find.text('首次设置页'), findsOneWidget);
   });
+}
+
+class _RecordingWidgetBridge implements WidgetStorageBridge {
+  final calls = <String>[];
+
+  @override
+  Future<void> clearSnapshot() async => calls.add('clear');
+
+  @override
+  Future<void> saveSnapshot(String value) async => calls.add('save');
+
+  @override
+  Future<void> setAppGroupId(String groupId) async {
+    calls.add('group:$groupId');
+  }
+
+  @override
+  Future<void> updateWidget() async => calls.add('update');
 }

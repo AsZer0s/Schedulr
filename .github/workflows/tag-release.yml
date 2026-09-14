@@ -55,7 +55,7 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test
+        run: flutter test --concurrency=1
 
       - name: Build release APK
         run: flutter build apk --release --build-number "$GITHUB_RUN_NUMBER"
@@ -81,6 +81,9 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
+      - name: Verify iOS Widget project contract
+        run: python3 scripts/verify_ios_widget_project.py
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
@@ -95,6 +98,38 @@ jobs:
         run: >-
           flutter build ios --release --no-codesign
           --build-number "$GITHUB_RUN_NUMBER"
+
+      - name: Verify embedded Widget versions match Runner
+        run: |
+          RUNNER_APP="build/ios/iphoneos/Runner.app"
+          WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"
+          test -d "$WIDGET_APPEX"
+          find "$RUNNER_APP/PlugIns" -maxdepth 1 -name '*.appex' -print
+
+          BUILD_SETTINGS="$(xcodebuild -project ios/Runner.xcodeproj -target SchedulrWidget -configuration Release -showBuildSettings)"
+          resolved_setting() {
+            printf '%s\n' "$BUILD_SETTINGS" | grep -m1 "^[[:space:]]*$1 = " | cut -d= -f2- | xargs
+          }
+          RESOLVED_FLUTTER_BUILD_NAME="$(resolved_setting FLUTTER_BUILD_NAME)"
+          RESOLVED_FLUTTER_BUILD_NUMBER="$(resolved_setting FLUTTER_BUILD_NUMBER)"
+          RESOLVED_MARKETING_VERSION="$(resolved_setting MARKETING_VERSION)"
+          RESOLVED_PROJECT_VERSION="$(resolved_setting CURRENT_PROJECT_VERSION)"
+
+          test -n "$RESOLVED_FLUTTER_BUILD_NAME"
+          test -n "$RESOLVED_FLUTTER_BUILD_NUMBER"
+          [[ "$RESOLVED_MARKETING_VERSION" == "$RESOLVED_FLUTTER_BUILD_NAME" ]]
+          [[ "$RESOLVED_PROJECT_VERSION" == "$RESOLVED_FLUTTER_BUILD_NUMBER" ]]
+
+          RUNNER_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_APP/Info.plist")"
+          WIDGET_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$WIDGET_APPEX/Info.plist")"
+          RUNNER_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_APP/Info.plist")"
+          WIDGET_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$WIDGET_APPEX/Info.plist")"
+
+          test -n "$RUNNER_SHORT_VERSION"
+          test -n "$RUNNER_BUILD_VERSION"
+          [[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]
+          [[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]
+          printf 'Runner/Widget version verified: %s (%s)\n' "$RUNNER_SHORT_VERSION" "$RUNNER_BUILD_VERSION"
 
       - name: Package unsigned IPA
         run: |
@@ -129,4 +164,4 @@ jobs:
           generate_release_notes: true
           files: dist/*
           body: |
-            Android APK 可直接安装。iOS IPA 未签名，需要使用有效的 Apple 开发者证书重新签名后安装。
+            Android APK 可直接安装。iOS IPA 未签名；包内含 SchedulrWidget.appex，需要为主应用和扩展分别配置含共享 App Group 的描述文件，先签名扩展再签名主应用。

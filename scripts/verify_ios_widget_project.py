@@ -1,0 +1,237 @@
+#!/usr/bin/env python3
+"""Validate the static structure of the iOS Schedulr WidgetKit integration."""
+
+from __future__ import annotations
+
+import plistlib
+import re
+import sys
+from collections import Counter
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+IOS = ROOT / "ios"
+PBXPROJ = IOS / "Runner.xcodeproj" / "project.pbxproj"
+SCHEME = IOS / "Runner.xcodeproj" / "xcshareddata" / "xcschemes" / "Runner.xcscheme"
+WORKFLOW = ROOT / ".github" / "workflows" / "tag-release.yml"
+RUNNER_INFO = IOS / "Runner" / "Info.plist"
+RUNNER_ENTITLEMENTS = IOS / "Runner" / "Runner.entitlements"
+WIDGET_DIR = IOS / "SchedulrWidget"
+WIDGET_SWIFT = WIDGET_DIR / "SchedulrWidget.swift"
+WIDGET_INFO = WIDGET_DIR / "Info.plist"
+WIDGET_ENTITLEMENTS = WIDGET_DIR / "SchedulrWidget.entitlements"
+FLUTTER_DEBUG_XCCONFIG = IOS / "Flutter" / "Debug.xcconfig"
+FLUTTER_RELEASE_XCCONFIG = IOS / "Flutter" / "Release.xcconfig"
+
+APP_GROUP = "group.app.schedulr.shared"
+SNAPSHOT_KEY = "schedulr.widget.snapshot.v1"
+WIDGET_BUNDLE = "app.schedulr.schedulr.widget"
+WIDGET_TARGET_ID = "A10000000000000000000010"
+WIDGET_PRODUCT_ID = "A10000000000000000000008"
+EMBED_PHASE_ID = "A1000000000000000000000A"
+THIN_PHASE_ID = "3B06AD1E1E4923F5004D2608"
+
+errors: list[str] = []
+checks: list[str] = []
+
+
+def require(condition: bool, message: str) -> None:
+    if condition:
+        checks.append(message)
+    else:
+        errors.append(message)
+
+
+def load_plist(path: Path) -> dict:
+    try:
+        with path.open("rb") as handle:
+            value = plistlib.load(handle)
+        require(isinstance(value, dict), f"{path.relative_to(ROOT)} is a plist dictionary")
+        return value if isinstance(value, dict) else {}
+    except Exception as exc:  # pragma: no cover - command line diagnostic
+        errors.append(f"cannot parse {path.relative_to(ROOT)}: {exc}")
+        return {}
+
+
+def object_block(text: str, object_id: str) -> str:
+    match = re.search(rf"^\s*{re.escape(object_id)}(?: /\*.*?\*/)? = \{{", text, re.MULTILINE)
+    if not match:
+        return ""
+    start = match.start()
+    depth = 0
+    opened = False
+    for index in range(match.end() - 1, len(text)):
+        char = text[index]
+        if char == "{":
+            depth += 1
+            opened = True
+        elif char == "}":
+            depth -= 1
+            if opened and depth == 0:
+                semicolon = text.find(";", index)
+                return text[start : semicolon + 1]
+    return ""
+
+
+for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG]:
+    require(path.is_file(), f"{path.relative_to(ROOT)} exists")
+
+if not PBXPROJ.is_file():
+    print("FAIL: project.pbxproj is missing", file=sys.stderr)
+    raise SystemExit(1)
+
+pbx = PBXPROJ.read_text()
+scheme = SCHEME.read_text() if SCHEME.is_file() else ""
+workflow = WORKFLOW.read_text() if WORKFLOW.is_file() else ""
+swift = WIDGET_SWIFT.read_text() if WIDGET_SWIFT.is_file() else ""
+flutter_debug_xcconfig = FLUTTER_DEBUG_XCCONFIG.read_text() if FLUTTER_DEBUG_XCCONFIG.is_file() else ""
+flutter_release_xcconfig = FLUTTER_RELEASE_XCCONFIG.read_text() if FLUTTER_RELEASE_XCCONFIG.is_file() else ""
+
+runner_info = load_plist(RUNNER_INFO) if RUNNER_INFO.is_file() else {}
+runner_entitlements = load_plist(RUNNER_ENTITLEMENTS) if RUNNER_ENTITLEMENTS.is_file() else {}
+widget_info = load_plist(WIDGET_INFO) if WIDGET_INFO.is_file() else {}
+widget_entitlements = load_plist(WIDGET_ENTITLEMENTS) if WIDGET_ENTITLEMENTS.is_file() else {}
+
+# pbxproj object IDs may be referenced many times; only object declarations must be unique.
+declared_ids = re.findall(r"^\t\t([0-9A-F]{24})(?: /\*.*?\*/)? = \{", pbx, re.MULTILINE)
+duplicate_declarations = sorted(object_id for object_id, count in Counter(declared_ids).items() if count > 1)
+require(not duplicate_declarations, f"pbxproj object declarations are unique ({duplicate_declarations or 'ok'})")
+
+all_referenced_ids = set(re.findall(r"\b[0-9A-F]{24}\b", pbx))
+declared_id_set = set(declared_ids)
+allowed_non_object_ids = {
+    "97C146E61CF9000F007C117D",  # root object is also declared; retained for clarity
+}
+missing_declarations = sorted(all_referenced_ids - declared_id_set - allowed_non_object_ids)
+require(not missing_declarations, f"pbxproj object references resolve ({missing_declarations or 'ok'})")
+
+widget_target = object_block(pbx, WIDGET_TARGET_ID)
+runner_target = object_block(pbx, "97C146ED1CF9000F007C117D")
+embed_phase = object_block(pbx, EMBED_PHASE_ID)
+widget_product = object_block(pbx, WIDGET_PRODUCT_ID)
+widget_dependency = object_block(pbx, "A10000000000000000000012")
+widget_sources = object_block(pbx, "A10000000000000000000014")
+widget_frameworks = object_block(pbx, "A1000000000000000000000E")
+widget_config_list = object_block(pbx, "A10000000000000000000013")
+
+require('name = SchedulrWidget;' in widget_target, "SchedulrWidget native target exists")
+require('productType = "com.apple.product-type.app-extension";' in widget_target, "widget target is an app extension")
+require(WIDGET_PRODUCT_ID in widget_target, "widget target references its appex product")
+require('explicitFileType = "wrapper.app-extension";' in widget_product and 'path = SchedulrWidget.appex;' in widget_product, "SchedulrWidget.appex product reference is valid")
+require(WIDGET_TARGET_ID in pbx[pbx.find("targets = (") : pbx.find(");", pbx.find("targets = ("))], "project target list includes SchedulrWidget")
+require('dstSubfolderSpec = 13;' in embed_phase, "Embed App Extensions uses PlugIns destination")
+require('SchedulrWidget.appex in Embed App Extensions' in embed_phase, "Embed App Extensions embeds SchedulrWidget.appex")
+require('target = A10000000000000000000010 /* SchedulrWidget */;' in widget_dependency, "Runner has target dependency on SchedulrWidget")
+require('A10000000000000000000012 /* PBXTargetDependency */' in runner_target, "Runner target lists widget dependency")
+require('SchedulrWidget.swift in Sources' in widget_sources, "widget Swift source is in widget Sources phase")
+require('WidgetKit.framework in Frameworks' in widget_frameworks, "widget links WidgetKit.framework")
+require('SwiftUI.framework in Frameworks' in widget_frameworks, "widget links SwiftUI.framework")
+require('Flutter' not in widget_target + widget_sources + widget_frameworks, "widget target does not link Flutter")
+require(all(name in widget_config_list for name in ["Debug", "Release", "Profile"]), "widget has Debug/Profile/Release configurations")
+require('#include "Generated.xcconfig"' in flutter_debug_xcconfig, "Flutter Debug.xcconfig imports generated Flutter build variables")
+require('#include "Generated.xcconfig"' in flutter_release_xcconfig, "Flutter Release.xcconfig imports generated Flutter build variables")
+
+for config_id, name in [
+    ("A10000000000000000000016", "Debug"),
+    ("A10000000000000000000017", "Release"),
+    ("A10000000000000000000018", "Profile"),
+]:
+    config = object_block(pbx, config_id)
+    require(f"name = {name};" in config, f"widget {name} configuration exists")
+    require('PRODUCT_BUNDLE_IDENTIFIER = app.schedulr.schedulr.widget;' in config, f"widget {name} bundle identifier is correct")
+    require('IPHONEOS_DEPLOYMENT_TARGET = 15.0;' in config, f"widget {name} deployment target is iOS 15")
+    require('INFOPLIST_FILE = SchedulrWidget/Info.plist;' in config, f"widget {name} Info.plist is configured")
+    require('CODE_SIGN_ENTITLEMENTS = SchedulrWidget/SchedulrWidget.entitlements;' in config, f"widget {name} entitlements are configured")
+    require('APPLICATION_EXTENSION_API_ONLY = YES;' in config, f"widget {name} enforces extension-safe APIs")
+    require('SKIP_INSTALL = YES;' in config, f"widget {name} uses SKIP_INSTALL")
+    require('CURRENT_PROJECT_VERSION = "$(FLUTTER_BUILD_NUMBER)";' in config, f"widget {name} build number follows Flutter")
+    require('MARKETING_VERSION = "$(FLUTTER_BUILD_NAME)";' in config, f"widget {name} marketing version follows Flutter")
+    expected_base = "9740EEB21CF90195004384FC" if name == "Debug" else "7AFA3C8E1D35360C0083082E"
+    require(f"baseConfigurationReference = {expected_base}" in config, f"widget {name} inherits Flutter-generated version settings")
+
+for config_id, name in [
+    ("97C147061CF9000F007C117D", "Debug"),
+    ("97C147071CF9000F007C117D", "Release"),
+    ("249021D4217E4FDB00AE95B9", "Profile"),
+]:
+    config = object_block(pbx, config_id)
+    require('CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;' in config, f"Runner {name} entitlements are configured")
+
+phase_ids = re.findall(r"([0-9A-F]{24}) /\*.*?\*/,", runner_target)
+require(EMBED_PHASE_ID in phase_ids and THIN_PHASE_ID in phase_ids, "Runner includes Embed App Extensions and Thin Binary phases")
+if EMBED_PHASE_ID in phase_ids and THIN_PHASE_ID in phase_ids:
+    require(phase_ids.index(EMBED_PHASE_ID) < phase_ids.index(THIN_PHASE_ID), "Thin Binary runs after Embed App Extensions")
+
+require(f'BlueprintIdentifier = "{WIDGET_TARGET_ID}"' in scheme, "shared Runner scheme builds SchedulrWidget")
+require('BuildableName = "SchedulrWidget.appex"' in scheme, "shared scheme references widget appex")
+
+require(widget_info.get("NSExtension", {}).get("NSExtensionPointIdentifier") == "com.apple.widgetkit-extension", "widget Info.plist declares WidgetKit extension point")
+require(widget_info.get("CFBundlePackageType") == "XPC!", "widget Info.plist uses XPC bundle type")
+require(runner_info.get("CFBundleShortVersionString") == "$(FLUTTER_BUILD_NAME)", "Runner Info.plist uses FLUTTER_BUILD_NAME")
+require(runner_info.get("CFBundleVersion") == "$(FLUTTER_BUILD_NUMBER)", "Runner Info.plist uses FLUTTER_BUILD_NUMBER")
+require(widget_info.get("CFBundleShortVersionString") == "$(MARKETING_VERSION)", "widget Info.plist uses target marketing version")
+require(widget_info.get("CFBundleVersion") == "$(CURRENT_PROJECT_VERSION)", "widget Info.plist uses target build version")
+require(APP_GROUP in runner_entitlements.get("com.apple.security.application-groups", []), "Runner entitlement contains the App Group")
+require(APP_GROUP in widget_entitlements.get("com.apple.security.application-groups", []), "widget entitlement contains the App Group")
+
+schemes = [
+    scheme_name
+    for url_type in runner_info.get("CFBundleURLTypes", [])
+    for scheme_name in url_type.get("CFBundleURLSchemes", [])
+]
+require("schedulr" in schemes, "Runner Info.plist registers the schedulr URL scheme")
+
+require("StaticConfiguration" in swift and "TimelineProvider" in swift, "widget uses StaticConfiguration and TimelineProvider")
+require(APP_GROUP in swift and SNAPSHOT_KEY in swift, "widget reads the agreed App Group snapshot key")
+require('schedulr://home?homeWidget' in swift, "widget click URL is configured")
+require(all(family in swift for family in [".systemSmall", ".systemMedium", ".systemLarge"]), "widget supports small, medium, and large families")
+require("home_widget" not in swift.lower(), "widget source does not import or reference home_widget")
+imports = set(re.findall(r"^import\s+(\w+)", swift, re.MULTILINE))
+require(imports <= {"Foundation", "SwiftUI", "WidgetKit"}, f"widget imports only Foundation/SwiftUI/WidgetKit ({sorted(imports)})")
+require("lineLimit(2)" in swift, "course titles/details include two-line adaptation")
+require(all(field in swift for field in ["timetableName", "semesterName", "teachingWeek", "weekday", "startPeriod", "endPeriod", "color"]), "widget parser covers the Flutter snapshot schema fields")
+require('keys: ["id", "sessionId", "courseId"]' in swift, "widget uses unique sessionId before courseId for SwiftUI identity")
+require('value(root, keys: ["futureDays"]) as? [Any]' in swift, "widget parses futureDays")
+require('func selectedDay(at date: Date) -> DayProjection?' in swift and 'calendar.isDate($0.date, inSameDayAs: date)' in swift, "widget dynamically selects the snapshot day matching each entry date")
+require('let current = snapshot.currentCourse(in: selectedDay, at: entry.date)' in swift and 'let next = snapshot.nextCourse(in: selectedDay, at: entry.date)' in swift, "view recomputes current and next from the selected day at entry.date")
+require('guard let start = course.start, let end = course.end else { return false }' in swift and 'return start <= date && date < end' in swift, "current course uses half-open parsed time bounds")
+require('let ongoing = bool(' not in swift and '.ongoing' not in swift, "stored ongoing flags are ignored")
+require('value(root, keys: ["next", "nextCourse"])' not in swift and 'currentCourse"]' not in swift, "stored root current/next projections are ignored")
+weekday_cases = {
+    1: "周日",
+    2: "周一",
+    3: "周二",
+    4: "周三",
+    5: "周四",
+    6: "周五",
+    7: "周六",
+}
+require(all(f'case {number}: return "{label}"' in swift for number, label in weekday_cases.items()), "calendar weekday mapping explicitly covers 周一..周日")
+require('selectedDay.teachingWeek == nil' in swift and 'case .noData:' in swift, "outside-semester is selected-day teachingWeek nil while noTimetable remains noData")
+require('selectedDay.dateText' in swift and 'selectedDay.weekText' in swift and 'selectedDay.courses.prefix(3)' in swift, "widget displays selected date, teaching week, and course list")
+require('snapshot.nextDaySummary(after: selectedDay)' in swift and 'nextDay(after day: DayProjection)' in swift, "widget derives the next-day summary from the selected day")
+require('keys: ["timeText", "time", "periodText"]' in swift, "widget parser accepts the course time string")
+require("case .noData" in swift and "case .corrupt" in swift and "isStale" in swift, "widget handles no-data, corrupt, and stale states")
+require("nextMidnight" in swift and "coursePoints" in swift and "$0.start, $0.end" in swift, "timeline includes midnight and every parsed course boundary")
+require('coursePoints.filter { $0 > now && $0 < nextMidnight }' in swift, "timeline bounds course transitions before midnight without suppressing close boundaries")
+
+require("flutter test --concurrency=1" in workflow, "release workflow runs Flutter tests sequentially")
+require("Verify iOS Widget project contract" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")
+require('WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"' in workflow, "release workflow locates the embedded widget")
+require("CFBundleShortVersionString" in workflow and "CFBundleVersion" in workflow, "release workflow reads both app and widget version fields")
+require("xcodebuild -project ios/Runner.xcodeproj -target SchedulrWidget -configuration Release -showBuildSettings" in workflow, "release workflow checks resolved widget target build settings")
+require('test -n "$RESOLVED_FLUTTER_BUILD_NAME"' in workflow and 'test -n "$RESOLVED_FLUTTER_BUILD_NUMBER"' in workflow, "release workflow rejects empty resolved Flutter version variables")
+require('[[ "$RESOLVED_MARKETING_VERSION" == "$RESOLVED_FLUTTER_BUILD_NAME" ]]' in workflow and '[[ "$RESOLVED_PROJECT_VERSION" == "$RESOLVED_FLUTTER_BUILD_NUMBER" ]]' in workflow, "release workflow verifies target versions resolve from Flutter variables")
+require('[[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]' in workflow, "release workflow compares Runner and widget short versions")
+require('[[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]' in workflow, "release workflow compares Runner and widget build versions")
+
+if errors:
+    print(f"iOS widget project verification FAILED: {len(errors)} issue(s)")
+    for error in errors:
+        print(f"  FAIL: {error}")
+    print(f"  Passed checks before failure: {len(checks)}")
+    raise SystemExit(1)
+
+print(f"iOS widget project verification PASSED: {len(checks)} checks")
+for check in checks:
+    print(f"  OK: {check}")

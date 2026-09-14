@@ -20,6 +20,11 @@ MVP 实现以下能力：
 - 课程冲突显示
 - 手动新增、编辑和删除课程
 - 学期、开学日期与教学周数设置
+- Android / iOS 桌面小组件
+  - 显示当前课表、今天课程、正在上课或下一节课程。
+  - Android 支持紧凑和中等尺寸；iOS WidgetKit 支持 Small、Medium、Large。
+  - 点击小组件返回课程表首页。
+  - 小组件只读取隐私最小化的本地 JSON 快照，不直接访问 SQLite、教务会话或网络。
 - 正方教务导入抽象、导入预览及事务提交
 - 多课表本地切换、重命名和独立编辑
   - 点击首页“课程表”标题打开列表。
@@ -100,7 +105,13 @@ git push origin v1.0.0
 - `Schedulr-<tag>-android.apk`
 - `Schedulr-<tag>-ios-unsigned.ipa`
 
-IPA 由 macOS Runner 使用 `--no-codesign` 构建，需要使用有效的 Apple 开发者证书重新签名后安装。
+IPA 由 macOS Runner 使用 `--no-codesign` 构建。由于包内包含 `SchedulrWidget.appex`，安装前需要：
+
+- 为主应用 `app.schedulr.schedulr` 和小组件 `app.schedulr.schedulr.widget` 分别准备有效的描述文件。
+- 两个 App ID 都启用 App Group `group.app.schedulr.shared`。
+- 先签名嵌套的 `Runner.app/PlugIns/SchedulrWidget.appex`，再签名外层 `Runner.app`，并保持相同的版本号和构建号。
+
+只使用证书重签外层 App 不足以安装带 WidgetKit Extension 的 IPA。
 
 Android 默认使用 GitHub Runner 的 debug key 签署 Release APK，便于开源 fork 直接构建。若需使用正式签名，请配置以下 Actions Secrets：
 

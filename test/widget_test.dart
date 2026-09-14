@@ -30,7 +30,7 @@ void main() {
             (ref) => Stream.value(timetable),
           ),
         ],
-        child: const SchedulrApp(),
+        child: const SchedulrApp(enableDesktopWidgetSync: false),
       ),
     );
     await tester.pumpAndSettle();

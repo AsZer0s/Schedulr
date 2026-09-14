@@ -14,6 +14,18 @@ Drift/SQLite 保存：
 - 作息时间
 - 数据来源与本地修改标记
 
+### 桌面小组件快照
+
+为了让 Android AppWidget 和 iOS WidgetKit 在应用未打开时展示课程，应用会生成一份本地、只读的展示快照：
+
+- Android 保存于应用私有 SharedPreferences。
+- iOS 保存于主应用和 Widget Extension 共用的 App Group UserDefaults。
+- 快照只包含当前课表本地别名、课程名、教师、精简地点、上下课时间、教学周及本地课程 ID。
+- 不包含课程备注、课程代码、教学班、教务账号、密码、Cookie、Token、学号或导入原始响应。
+- 删除全部本地数据时会先清除共享快照并刷新桌面组件，再删除 Drift SQLite 数据。
+
+桌面小组件内容会直接出现在设备主屏幕，可能被旁人、截图或屏幕共享看到。用户添加小组件即表示接受当前课程信息在主屏幕展示。
+
 ### 系统安全存储
 
 Android Keystore / iOS Keychain 仅用于必须保留的登录会话材料。安全存储与课程数据库独立清理。

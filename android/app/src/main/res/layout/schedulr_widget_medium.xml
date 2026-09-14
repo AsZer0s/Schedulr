@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/schedulr_widget_background"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:id="@+id/widget_container"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:clickable="true"
+        android:focusable="true">
+        <TextView android:id="@+id/widget_timetable_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:text="Schedulr" android:textColor="@color/widget_primary" android:textSize="18sp" android:textStyle="bold" />
+        <TextView android:id="@+id/widget_date" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:ellipsize="end" android:maxLines="1" android:text="课表概览" android:textColor="@color/widget_secondary" android:textSize="12sp" />
+        <TextView android:id="@+id/widget_next_label" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="下一节" android:textColor="@color/widget_accent" android:textSize="11sp" android:textStyle="bold" />
+        <TextView android:id="@+id/widget_next_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:text="今天没有更多课程" android:textColor="@color/widget_primary" android:textSize="16sp" android:textStyle="bold" />
+        <TextView android:id="@+id/widget_next_detail" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:text="享受今天的空闲时间" android:textColor="@color/widget_secondary" android:textSize="12sp" />
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginTop="10dp" android:layout_marginBottom="4dp" android:background="@color/widget_divider" />
+        <LinearLayout android:id="@+id/widget_course_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="5dp"><TextView android:id="@+id/widget_course_name_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:textColor="@color/widget_primary" android:textSize="14sp" android:textStyle="bold" /><TextView android:id="@+id/widget_course_detail_1" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="@color/widget_secondary" android:textSize="12sp" /></LinearLayout>
+        <LinearLayout android:id="@+id/widget_course_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="6dp"><TextView android:id="@+id/widget_course_name_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:textColor="@color/widget_primary" android:textSize="14sp" android:textStyle="bold" /><TextView android:id="@+id/widget_course_detail_2" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="@color/widget_secondary" android:textSize="12sp" /></LinearLayout>
+        <LinearLayout android:id="@+id/widget_course_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingTop="6dp"><TextView android:id="@+id/widget_course_name_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="2" android:textColor="@color/widget_primary" android:textSize="14sp" android:textStyle="bold" /><TextView android:id="@+id/widget_course_detail_3" android:layout_width="match_parent" android:layout_height="wrap_content" android:ellipsize="end" android:maxLines="1" android:textColor="@color/widget_secondary" android:textSize="12sp" /></LinearLayout>
+    </LinearLayout>
+</FrameLayout>

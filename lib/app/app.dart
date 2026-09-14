@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:home_widget/home_widget.dart';
 
-import '../core/time/current_date.dart';
+import '../features/desktop_widget/widget_providers.dart';
+import '../features/desktop_widget/widget_publisher.dart';
+import '../features/timetable/data/providers.dart';
 import 'router.dart';
 import 'theme/app_theme.dart';
 
@@ -11,11 +16,17 @@ class SchedulrApp extends ConsumerStatefulWidget {
   const SchedulrApp({
     this.initialLocation = '/',
     this.routerFactory,
+    this.enableDesktopWidgetSync = true,
+    this.publishDesktopWidgetSnapshot,
+    this.desktopWidgetClicks,
     super.key,
   });
 
   final String initialLocation;
   final GoRouter Function(String initialLocation)? routerFactory;
+  final bool enableDesktopWidgetSync;
+  final Future<void> Function(DateTime now)? publishDesktopWidgetSnapshot;
+  final Stream<Uri?>? desktopWidgetClicks;
 
   @override
   ConsumerState<SchedulrApp> createState() => _SchedulrAppState();
@@ -24,6 +35,8 @@ class SchedulrApp extends ConsumerStatefulWidget {
 class _SchedulrAppState extends ConsumerState<SchedulrApp> {
   late final GoRouter _router;
   late final AppLifecycleListener _lifecycleListener;
+  Timer? _widgetPublishDebounce;
+  StreamSubscription<Uri?>? _widgetClickSubscription;
 
   @override
   void initState() {
@@ -36,12 +49,64 @@ class _SchedulrAppState extends ConsumerState<SchedulrApp> {
     _lifecycleListener = AppLifecycleListener(
       onResume: () {
         ref.read(currentDateNotifierProvider.notifier).refreshNow();
+        _scheduleWidgetPublish();
       },
     );
+    if (widget.enableDesktopWidgetSync) {
+      ref.listenManual(
+        currentTimetableProvider,
+        (_, _) => _scheduleWidgetPublish(),
+      );
+      ref.listenManual(currentDateProvider, (_, _) => _scheduleWidgetPublish());
+      _widgetClickSubscription =
+          (widget.desktopWidgetClicks ?? HomeWidget.widgetClicked).listen(
+            _handleWidgetClick,
+          );
+      unawaited(_handleInitialWidgetLaunch());
+      _scheduleWidgetPublish();
+    }
+  }
+
+  Future<void> _handleInitialWidgetLaunch() async {
+    try {
+      _handleWidgetClick(await HomeWidget.initiallyLaunchedFromHomeWidget());
+    } on Object {
+      // The platform bridge is unavailable in pure widget tests and some hosts.
+    }
+  }
+
+  void _handleWidgetClick(Uri? uri) {
+    if (uri == null || _router.state.uri.path == '/onboarding') return;
+    if (uri.scheme == 'schedulr' && uri.host == 'home') {
+      _router.go('/');
+    }
+  }
+
+  void _scheduleWidgetPublish() {
+    if (!widget.enableDesktopWidgetSync) return;
+    _widgetPublishDebounce?.cancel();
+    _widgetPublishDebounce = Timer(const Duration(milliseconds: 200), () async {
+      try {
+        final now = ref.read(clockProvider)();
+        final callback = widget.publishDesktopWidgetSnapshot;
+        if (callback != null) {
+          await callback(now);
+        } else {
+          await WidgetSnapshotCoordinator(
+            repository: ref.read(timetableRepositoryProvider),
+            bridge: ref.read(widgetStorageBridgeProvider),
+          ).publishCurrent(now);
+        }
+      } on Object {
+        // A launcher widget bridge must never block or crash the main app.
+      }
+    });
   }
 
   @override
   void dispose() {
+    _widgetPublishDebounce?.cancel();
+    unawaited(_widgetClickSubscription?.cancel());
     _lifecycleListener.dispose();
     _router.dispose();
     super.dispose();
