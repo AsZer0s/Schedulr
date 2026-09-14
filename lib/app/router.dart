@@ -68,6 +68,7 @@ GoRouter createAppRouter({String initialLocation = '/'}) {
           child: ImportRoutePage(
             targetSemesterId: state.uri.queryParameters['target'],
             initialSource: state.uri.queryParameters['source'],
+            refreshMode: state.uri.queryParameters['refresh'] == '1',
           ),
         ),
       ),

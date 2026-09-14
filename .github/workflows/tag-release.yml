@@ -81,8 +81,10 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Verify iOS Widget project contract
-        run: python3 scripts/verify_ios_widget_project.py
+      - name: Verify iOS native integrations
+        run: |
+          python3 scripts/verify_ios_widget_project.py
+          python3 scripts/verify_ios_native_dialog_bridge.py
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2

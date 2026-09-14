@@ -216,7 +216,7 @@ require("nextMidnight" in swift and "coursePoints" in swift and "$0.start, $0.en
 require('coursePoints.filter { $0 > now && $0 < nextMidnight }' in swift, "timeline bounds course transitions before midnight without suppressing close boundaries")
 
 require("flutter test --concurrency=1" in workflow, "release workflow runs Flutter tests sequentially")
-require("Verify iOS Widget project contract" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")
+require("Verify iOS native integrations" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")
 require('WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"' in workflow, "release workflow locates the embedded widget")
 require("CFBundleShortVersionString" in workflow and "CFBundleVersion" in workflow, "release workflow reads both app and widget version fields")
 require("xcodebuild -project ios/Runner.xcodeproj -target SchedulrWidget -configuration Release -showBuildSettings" in workflow, "release workflow checks resolved widget target build settings")

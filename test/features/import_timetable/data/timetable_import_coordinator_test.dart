@@ -155,6 +155,93 @@ void main() {
     },
   );
 
+  test(
+    'refresh transaction updates remote courses and preserves manual ones',
+    () async {
+      final remoteCourse = Course(
+        id: 'remote-existing',
+        semesterId: current.semester.id,
+        name: '旧远端课程',
+        teacher: '旧教师',
+        source: CourseSource.zfsoft,
+        sourceId: 'remote-1',
+      );
+      final removedCourse = Course(
+        id: 'remote-removed',
+        semesterId: current.semester.id,
+        name: '将被移除',
+        source: CourseSource.zfsoft,
+        sourceId: 'remote-removed',
+      );
+      final withRemote = current.copyWith(
+        courses: [
+          ...current.courses,
+          CourseWithSessions(
+            course: remoteCourse,
+            sessions: [
+              CourseSession(
+                id: 'remote-session',
+                courseId: remoteCourse.id,
+                weekday: DateTime.tuesday,
+                startPeriod: 1,
+                endPeriod: 1,
+                weeks: const {1},
+                location: '旧教室',
+              ),
+            ],
+          ),
+          CourseWithSessions(course: removedCourse, sessions: const []),
+        ],
+      );
+      await repository.replaceSemesterTimetable(withRemote);
+      final imported = ImportedTimetable(
+        sourceName: 'BITC',
+        term: const ImportTermRequest(academicYear: '2026-2027', term: 1),
+        entries: [
+          ImportedTimetableEntry(
+            externalId: 'remote-1',
+            title: '新远端课程',
+            teacher: '新教师',
+            location: '新教室',
+            dayOfWeek: DateTime.tuesday,
+            startPeriod: 1,
+            endPeriod: 1,
+            weeks: const {1, 2},
+          ),
+        ],
+      );
+      final plan = BitcRefreshReconciler(idGenerator: () => 'unused-new-id')
+          .reconcile(existing: withRemote, imported: imported.entries);
+
+      await coordinator.refresh(
+        currentTimetable: withRemote,
+        imported: imported,
+        preparedPlan: plan,
+      );
+
+      final stored = await repository.getSemesterTimetable(current.semester.id);
+      expect(
+        stored!.courses.any((entry) => entry.course.id == 'existing'),
+        isTrue,
+      );
+      final refreshed = stored.courses.singleWhere(
+        (entry) => entry.course.sourceId == 'remote-1',
+      );
+      expect(refreshed.course.id, 'remote-existing');
+      expect(refreshed.course.name, '新远端课程');
+      expect(refreshed.course.teacher, '新教师');
+      expect(refreshed.sessions.single.id, 'remote-session');
+      expect(refreshed.sessions.single.location, '新教室');
+      expect(refreshed.sessions.single.weeks, {1, 2});
+      expect(
+        stored.courses.any(
+          (entry) => entry.course.sourceId == 'remote-removed',
+        ),
+        isFalse,
+      );
+    },
+  );
+
   test('metadata-only commit persists calendar and schedule', () async {
     await coordinator.commit(
       currentTimetable: current,

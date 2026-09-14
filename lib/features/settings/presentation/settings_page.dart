@@ -6,13 +6,17 @@ class SettingsPage extends StatelessWidget {
   const SettingsPage({
     required this.onEditSemester,
     required this.onClearSession,
+    required this.onDeleteSavedAccounts,
     required this.onClearAllData,
+    required this.savedAccountCount,
     super.key,
   });
 
   final VoidCallback onEditSemester;
   final Future<void> Function() onClearSession;
+  final Future<void> Function() onDeleteSavedAccounts;
   final Future<void> Function() onClearAllData;
+  final int savedAccountCount;
 
   @override
   Widget build(BuildContext context) {
@@ -37,14 +41,34 @@ class SettingsPage extends StatelessWidget {
           ),
           ListTile(
             leading: const Icon(Icons.logout_rounded),
-            title: const Text('清除教务会话'),
-            subtitle: const Text('清除学校网页登录 Cookie；不会删除已导入课程。'),
+            title: const Text('退出教务网页登录'),
+            subtitle: const Text('清除学校 WebView Cookie；保留已保存账号和课程。'),
             onTap: () async {
               await onClearSession();
               if (!context.mounted) return;
               ScaffoldMessenger.of(context)
-                  .showSnackBar(const SnackBar(content: Text('教务会话已清除。')));
+                  .showSnackBar(const SnackBar(content: Text('教务网页登录已退出。')));
             },
+          ),
+          ListTile(
+            key: const ValueKey('delete-saved-bitc-accounts'),
+            leading: const Icon(Icons.no_accounts_outlined),
+            title: const Text('删除已保存教务账号'),
+            subtitle: Text(
+              savedAccountCount == 0
+                  ? '当前没有保存账号；密码从不由 App 保存。'
+                  : '已保存 $savedAccountCount 个账号；删除后仍保留课程。',
+            ),
+            enabled: savedAccountCount > 0,
+            onTap: savedAccountCount == 0
+                ? null
+                : () async {
+                    await onDeleteSavedAccounts();
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('已保存教务账号已删除。')),
+                    );
+                  },
           ),
           ListTile(
             leading: Icon(

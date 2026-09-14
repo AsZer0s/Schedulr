@@ -1,5 +1,9 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'native_dialog_bridge.dart';
 
 /// Whether iOS conventions should be used for this widget tree.
 ///
@@ -7,6 +11,30 @@ import 'package:flutter/material.dart';
 /// dart:io, so widget tests can exercise iOS UI on Linux.
 bool usesCupertinoConventions(BuildContext context) {
   return Theme.of(context).platform == TargetPlatform.iOS;
+}
+
+NativeDialogBridge nativeDialogBridge = const MethodChannelNativeDialogBridge();
+
+bool get _canUseNativeDialogs =>
+    !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
+
+Future<({bool available, T? value})> _tryNativeDialog<T>(
+  Future<T?> Function() invoke,
+) async {
+  if (!_canUseNativeDialogs) return (available: false, value: null);
+  for (var attempt = 0; attempt < 4; attempt++) {
+    try {
+      return (available: true, value: await invoke());
+    } on MissingPluginException {
+      return (available: false, value: null);
+    } on PlatformException catch (error) {
+      if (error.code != 'presentation_in_progress' || attempt == 3) {
+        return (available: false, value: null);
+      }
+      await Future<void>.delayed(const Duration(milliseconds: 120));
+    }
+  }
+  return (available: false, value: null);
 }
 
 class AdaptiveActionSheetAction<T> {
@@ -27,8 +55,31 @@ Future<T?> showAdaptiveActionSheet<T>(
   String? message,
   required List<AdaptiveActionSheetAction<T>> actions,
   String cancelLabel = '取消',
-}) {
+}) async {
   if (usesCupertinoConventions(context)) {
+    final ids = <String, T>{
+      for (var index = 0; index < actions.length; index++)
+        'action-$index': actions[index].value,
+    };
+    final native = await _tryNativeDialog(
+      () => nativeDialogBridge.showActionSheet(
+        title: title,
+        message: message,
+        cancelLabel: cancelLabel,
+        actions: [
+          for (var index = 0; index < actions.length; index++)
+            NativeDialogAction(
+              id: 'action-$index',
+              label: actions[index].label,
+              destructive: actions[index].isDestructive,
+            ),
+        ],
+      ),
+    );
+    if (native.available) {
+      return native.value == null ? null : ids[native.value];
+    }
+    if (!context.mounted) return null;
     return showCupertinoModalPopup<T>(
       context: context,
       builder: (context) => CupertinoActionSheet(
@@ -154,8 +205,31 @@ Future<String?> showAdaptiveTextInputDialog(
   int? maxLength,
   String? Function(String?)? validator,
   ValueKey<String> fieldKey = const ValueKey('adaptive-text-input'),
-}) {
+}) async {
   if (usesCupertinoConventions(context)) {
+    var value = initialValue;
+    String? validationMessage;
+    while (true) {
+      final native = await _tryNativeDialog(
+        () => nativeDialogBridge.showTextInput(
+          title: title,
+          message: validationMessage,
+          initialValue: value,
+          confirmLabel: confirmLabel,
+          cancelLabel: cancelLabel,
+          placeholder: hintText ?? labelText,
+          maxLength: maxLength,
+        ),
+      );
+      if (!native.available) break;
+      final entered = native.value?.trim();
+      if (entered == null) return null;
+      final error = validator?.call(entered);
+      if (error == null) return entered;
+      value = entered;
+      validationMessage = error;
+    }
+    if (!context.mounted) return null;
     return showCupertinoDialog<String>(
       context: context,
       builder: (dialogContext) => _AdaptiveCupertinoTextInputDialog(
@@ -554,6 +628,17 @@ Future<bool> showAdaptiveConfirmationDialog(
   bool destructive = false,
 }) async {
   if (usesCupertinoConventions(context)) {
+    final native = await _tryNativeDialog(
+      () => nativeDialogBridge.showConfirmation(
+        title: title,
+        message: message,
+        confirmLabel: confirmLabel,
+        cancelLabel: cancelLabel,
+        destructive: destructive,
+      ),
+    );
+    if (native.available) return native.value ?? false;
+    if (!context.mounted) return false;
     return await showCupertinoDialog<bool>(
           context: context,
           builder: (context) => CupertinoAlertDialog(

@@ -11,12 +11,14 @@ class TimetableSwitcherItem {
     required this.timetableName,
     required this.semesterName,
     required this.isCurrent,
+    this.hasSavedAccount = false,
   });
 
   final String id;
   final String timetableName;
   final String semesterName;
   final bool isCurrent;
+  final bool hasSavedAccount;
 }
 
 enum TimetableAddMethod { blank, bitc }
@@ -35,14 +37,21 @@ class TimetableSwitcherSheet extends StatelessWidget {
     required this.onSelect,
     required this.onRename,
     required this.onDelete,
+    required this.onRefresh,
     required this.onAdd,
     super.key,
   });
+
+  static const sheetRootKey = ValueKey<String>('timetable-switcher-sheet-root');
+
+  static ValueKey<String> rowKey(String id) =>
+      ValueKey<String>('timetable-$id');
 
   final List<TimetableSwitcherItem> timetables;
   final Future<void> Function(String id) onSelect;
   final TimetableRenameCallback onRename;
   final TimetableDeleteCallback onDelete;
+  final Future<void> Function(TimetableSwitcherItem timetable) onRefresh;
   final Future<void> Function(TimetableAddMethod method, String name) onAdd;
 
   Future<void> _select(
@@ -123,6 +132,10 @@ class TimetableSwitcherSheet extends StatelessWidget {
       context,
       title: timetable.timetableName,
       actions: const [
+        AdaptiveActionSheetAction(
+          label: '刷新课表',
+          value: _TimetableAction.refresh,
+        ),
         AdaptiveActionSheetAction(label: '重命名', value: _TimetableAction.rename),
         AdaptiveActionSheetAction(
           label: '删除',
@@ -133,6 +146,9 @@ class TimetableSwitcherSheet extends StatelessWidget {
     );
     if (!context.mounted) return;
     switch (action) {
+      case _TimetableAction.refresh:
+        Navigator.pop(context);
+        await onRefresh(timetable);
       case _TimetableAction.rename:
         await _rename(context, timetable);
       case _TimetableAction.delete:
@@ -144,8 +160,18 @@ class TimetableSwitcherSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isCupertino = usesCupertinoConventions(context);
+    final sheetBackground = isCupertino
+        ? CupertinoColors.systemBackground.resolveFrom(context)
+        : null;
+    final selectedBackground = isCupertino
+        ? CupertinoColors.secondarySystemBackground.resolveFrom(context)
+        : null;
+
     return Material(
-      type: MaterialType.transparency,
+      key: sheetRootKey,
+      type: isCupertino ? MaterialType.canvas : MaterialType.transparency,
+      color: sheetBackground,
       child: SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -175,7 +201,10 @@ class TimetableSwitcherSheet extends StatelessWidget {
                 itemBuilder: (context, index) {
                   final timetable = timetables[index];
                   return ListTile(
-                    key: ValueKey('timetable-${timetable.id}'),
+                    key: rowKey(timetable.id),
+                    tileColor: timetable.isCurrent && isCupertino
+                        ? selectedBackground
+                        : null,
                     onTap: () => _select(context, timetable),
                     leading: SizedBox(
                       width: 24,
@@ -193,11 +222,12 @@ class TimetableSwitcherSheet extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                     subtitle: Text(
-                      timetable.semesterName,
+                      '${timetable.semesterName} · '
+                      '${timetable.hasSavedAccount ? 'BITC 已绑定账号' : '未绑定教务账号'}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: usesCupertinoConventions(context)
+                    trailing: isCupertino
                         ? CupertinoButton(
                             key: ValueKey('timetable-actions-${timetable.id}'),
                             padding: EdgeInsets.zero,
@@ -208,6 +238,9 @@ class TimetableSwitcherSheet extends StatelessWidget {
                             tooltip: '${timetable.timetableName}的更多操作',
                             onSelected: (action) {
                               switch (action) {
+                                case _TimetableAction.refresh:
+                                  Navigator.pop(context);
+                                  unawaited(onRefresh(timetable));
                                 case _TimetableAction.rename:
                                   unawaited(_rename(context, timetable));
                                 case _TimetableAction.delete:
@@ -215,6 +248,10 @@ class TimetableSwitcherSheet extends StatelessWidget {
                               }
                             },
                             itemBuilder: (context) => const [
+                              PopupMenuItem(
+                                value: _TimetableAction.refresh,
+                                child: Text('刷新课表'),
+                              ),
                               PopupMenuItem(
                                 value: _TimetableAction.rename,
                                 child: Text('重命名'),
@@ -243,7 +280,7 @@ class TimetableSwitcherSheet extends StatelessWidget {
   }
 }
 
-enum _TimetableAction { rename, delete }
+enum _TimetableAction { refresh, rename, delete }
 
 Future<String?> showTimetableNameDialog(
   BuildContext context, {

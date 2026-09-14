@@ -6,7 +6,7 @@ import '../../../core/platform/adaptive_ui.dart';
 
 import '../domain/import_timetable.dart';
 
-class ImportPreviewPage extends StatelessWidget {
+class ImportPreviewPage extends StatefulWidget {
   const ImportPreviewPage({
     required this.preview,
     required this.sourceName,
@@ -25,15 +25,43 @@ class ImportPreviewPage extends StatelessWidget {
   final bool hasCalendarUpdate;
 
   @override
+  State<ImportPreviewPage> createState() => _ImportPreviewPageState();
+}
+
+class _ImportPreviewPageState extends State<ImportPreviewPage> {
+  bool _isCommitting = false;
+  String? _commitError;
+
+  Future<void> _commit() async {
+    setState(() {
+      _isCommitting = true;
+      _commitError = null;
+    });
+    try {
+      await widget.onCommit();
+      if (!mounted) return;
+      Navigator.of(context).pop(true);
+    } on Object {
+      if (!mounted) return;
+      setState(() {
+        _isCommitting = false;
+        _commitError = '导入失败，请重试。';
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final preview = widget.preview;
+    final timingProfile = widget.timingProfile;
     final canCommit =
         preview.canCommit &&
         (preview.addedCount > 0 ||
-            hasCalendarUpdate ||
+            widget.hasCalendarUpdate ||
             timingProfile?.schedule != null);
     final label = preview.addedCount > 0
         ? '导入 ${preview.addedCount} 条新安排'
-        : timingProfile?.schedule != null && hasCalendarUpdate
+        : timingProfile?.schedule != null && widget.hasCalendarUpdate
         ? '更新校历与作息'
         : timingProfile?.schedule != null
         ? '更新作息'
@@ -45,8 +73,8 @@ class ImportPreviewPage extends StatelessWidget {
         children: [
           _ImportSummary(
             preview: preview,
-            sourceName: sourceName,
-            targetTimetableName: targetTimetableName,
+            sourceName: widget.sourceName,
+            targetTimetableName: widget.targetTimetableName,
             timingProfile: timingProfile,
           ),
           if (preview.issues.isNotEmpty)
@@ -83,6 +111,14 @@ class ImportPreviewPage extends StatelessWidget {
               },
             ),
           ),
+          if (_commitError case final message?)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Text(
+                message,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           if (!isCupertino)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
@@ -90,9 +126,14 @@ class ImportPreviewPage extends StatelessWidget {
                 width: double.infinity,
                 child: FilledButton.icon(
                   key: const ValueKey('import-preview-commit'),
-                  onPressed: canCommit ? () async => onCommit() : null,
-                  icon: const Icon(Icons.download_done_rounded),
-                  label: Text(label),
+                  onPressed: canCommit && !_isCommitting ? _commit : null,
+                  icon: _isCommitting
+                      ? const SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.download_done_rounded),
+                  label: Text(_isCommitting ? '正在导入…' : label),
                 ),
               ),
             ),
@@ -105,8 +146,8 @@ class ImportPreviewPage extends StatelessWidget {
                 width: double.infinity,
                 child: CupertinoButton.filled(
                   key: const ValueKey('import-preview-commit'),
-                  onPressed: canCommit ? () async => onCommit() : null,
-                  child: Text(label),
+                  onPressed: canCommit && !_isCommitting ? _commit : null,
+                  child: Text(_isCommitting ? '正在导入…' : label),
                 ),
               ),
             )

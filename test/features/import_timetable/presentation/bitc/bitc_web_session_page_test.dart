@@ -2,6 +2,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:schedulr/features/import_timetable/presentation/bitc/bitc_web_session_page.dart';
 
 void main() {
+  test('BITC 账号预填脚本只写账号且不读取密码或回传字段', () {
+    final script = buildBitcAccountPrefillScript('student-001');
+
+    expect(script, contains('student-001'));
+    expect(script, contains("element.type !== 'password'"));
+    expect(script, contains('field.value = account'));
+    expect(script, isNot(contains('SchedulrBridge.postMessage')));
+    expect(script, isNot(contains('document.cookie')));
+    expect(script, isNot(contains('input[type="password"]')));
+    expect(buildBitcAccountPrefillScript('   '), isEmpty);
+  });
+
   test('BITC bridge 只传递课程和校历白名单字段', () {
     final script = buildBitcTimetableBridgeScript(
       academicYearStart: '2026',

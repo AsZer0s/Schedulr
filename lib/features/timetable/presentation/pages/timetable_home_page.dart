@@ -8,9 +8,10 @@ import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../../core/platform/adaptive_ui.dart';
 import '../../../../core/time/teaching_calendar.dart';
+import '../../../import_timetable/data/providers.dart' as import_providers;
 import '../../data/providers.dart';
 import '../../domain/timetable_models.dart';
-import '../weekly_timetable_view.dart';
+import '../timetable_week_pager.dart';
 import 'timetable_switcher_sheet.dart';
 
 typedef CreateBlankTimetableCallback = Future<String> Function(
@@ -20,6 +21,8 @@ typedef CreateBlankTimetableCallback = Future<String> Function(
 typedef RenameTimetableCallback = Future<void> Function(String id, String name);
 typedef SelectTimetableCallback = Future<void> Function(String id);
 typedef DeleteTimetableCallback = Future<void> Function(String id);
+typedef DeleteTimetableAccountCallback = Future<void> Function(String id);
+typedef LoadTimetableAccountIdsCallback = Future<Set<String>> Function();
 typedef ClearTimetableImportCookiesCallback = Future<void> Function();
 
 class TimetableHomePage extends ConsumerStatefulWidget {
@@ -28,6 +31,8 @@ class TimetableHomePage extends ConsumerStatefulWidget {
     this.renameTimetable,
     this.selectTimetable,
     this.deleteTimetable,
+    this.deleteTimetableAccount,
+    this.loadTimetableAccountIds,
     this.clearImportCookies,
     super.key,
   });
@@ -36,6 +41,8 @@ class TimetableHomePage extends ConsumerStatefulWidget {
   final RenameTimetableCallback? renameTimetable;
   final SelectTimetableCallback? selectTimetable;
   final DeleteTimetableCallback? deleteTimetable;
+  final DeleteTimetableAccountCallback? deleteTimetableAccount;
+  final LoadTimetableAccountIdsCallback? loadTimetableAccountIds;
   final ClearTimetableImportCookiesCallback? clearImportCookies;
 
   @override
@@ -109,6 +116,13 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
     SemesterTimetable current,
     List<Semester> semesters,
   ) async {
+    final loadIds = widget.loadTimetableAccountIds;
+    final savedIds = loadIds == null
+        ? (await ref.read(import_providers.bitcAccountStoreProvider).list())
+              .map((account) => account.timetableId)
+              .toSet()
+        : await loadIds();
+    if (!mounted) return;
     final items = semesters
         .map(
           (semester) => TimetableSwitcherItem(
@@ -116,6 +130,7 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
             timetableName: _timetableName(semester),
             semesterName: semester.name,
             isCurrent: semester.id == current.semester.id,
+            hasSavedAccount: savedIds.contains(semester.id),
           ),
         )
         .toList(growable: false);
@@ -127,6 +142,12 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
         onSelect: _setCurrentTimetable,
         onRename: (timetable, name) => _renameTimetable(timetable.id, name),
         onDelete: (timetable) => _deleteTimetable(timetable.id),
+        onRefresh: (timetable) async {
+          if (!mounted) return;
+          await context.push(
+            '/import?target=${timetable.id}&source=bitc&refresh=1',
+          );
+        },
         onAdd: (method, name) =>
             _addTimetable(sheetContext, current, method, name),
       ),
@@ -152,9 +173,28 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
   }
 
   Future<void> _deleteTimetable(String id) async {
-    final callback = widget.deleteTimetable;
-    if (callback != null) {
-      await callback(id);
+    final deleteAccount = widget.deleteTimetableAccount;
+    final deleteTimetable = widget.deleteTimetable;
+    if (deleteAccount != null) {
+      await deleteAccount(id);
+    } else if (deleteTimetable == null) {
+      final accountStore = ref.read(import_providers.bitcAccountStoreProvider);
+      final account = await accountStore.read(id);
+      await accountStore.delete(id);
+      if (account != null) {
+        final sessionStore = ref.read(
+          import_providers.secureSessionStoreProvider,
+        );
+        if (await sessionStore.readCurrentWebSessionAccount() ==
+            account.accountId) {
+          await sessionStore.clearCurrentWebSessionAccount();
+        }
+      }
+      ref.invalidate(import_providers.bitcAccountProvider(id));
+      ref.invalidate(import_providers.bitcAccountsProvider);
+    }
+    if (deleteTimetable != null) {
+      await deleteTimetable(id);
       return;
     }
     await ref
@@ -193,17 +233,33 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
     await WebViewCookieManager().clearCookies();
   }
 
-  Future<void> _showHomeActions(SemesterTimetable? current) async {
+  Future<void> _showHomeActions(
+    SemesterTimetable? current, {
+    required bool hasSavedAccount,
+  }) async {
     final action = await showAdaptiveActionSheet<String>(
       context,
       title: '更多操作',
-      actions: const [
-        AdaptiveActionSheetAction(label: '导入课表', value: 'import'),
-        AdaptiveActionSheetAction(label: '设置', value: 'settings'),
+      actions: [
+        if (current != null)
+          AdaptiveActionSheetAction(
+            label: hasSavedAccount ? '刷新当前课表' : '登录教务并刷新',
+            value: 'refresh',
+          ),
+        const AdaptiveActionSheetAction(label: '导入课表', value: 'import'),
+        const AdaptiveActionSheetAction(label: '设置', value: 'settings'),
       ],
     );
     if (!mounted) return;
     switch (action) {
+      case 'refresh':
+        if (current != null) {
+          unawaited(
+            context.push(
+              '/import?target=${current.semester.id}&source=bitc&refresh=1',
+            ),
+          );
+        }
       case 'import':
         if (current != null) {
           unawaited(context.push('/import?target=${current.semester.id}'));
@@ -219,6 +275,11 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
     final semesters = ref.watch(timetablesProvider);
     final today = ref.watch(currentDateProvider);
     final current = timetable.value;
+    final currentAccount = current == null
+        ? null
+        : ref
+              .watch(import_providers.bitcAccountProvider(current.semester.id))
+              .value;
     final currentName = current == null
         ? '加载中'
         : _timetableName(current.semester);
@@ -267,18 +328,14 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                 child: LayoutBuilder(
-                  builder: (context, constraints) => WeeklyTimetableView(
+                  builder: (context, constraints) => TimetableWeekPager(
                     timetable: value,
                     teachingWeek: week,
                     today: today,
                     height: constraints.maxHeight,
+                    onWeekChanged: (changedWeek) =>
+                        _setSelectedWeek(semester, changedWeek),
                     onCourseTap: _openCourse,
-                    onPreviousWeek: week > 1
-                        ? () => _selectWeek(semester, today, -1)
-                        : null,
-                    onNextWeek: week < semester.teachingWeeks
-                        ? () => _selectWeek(semester, today, 1)
-                        : null,
                   ),
                 ),
               ),
@@ -312,7 +369,10 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
               CupertinoButton(
                 key: const ValueKey('ios-home-actions'),
                 padding: EdgeInsets.zero,
-                onPressed: () => _showHomeActions(current),
+                onPressed: () => _showHomeActions(
+                  current,
+                  hasSavedAccount: currentAccount != null,
+                ),
                 child: const Icon(CupertinoIcons.ellipsis_circle),
               ),
             ],
@@ -332,6 +392,12 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
           PopupMenuButton<String>(
             onSelected: (value) {
               switch (value) {
+                case 'refresh':
+                  if (current != null) {
+                    context.push(
+                      '/import?target=${current.semester.id}&source=bitc&refresh=1',
+                    );
+                  }
                 case 'import':
                   if (current != null) {
                     context.push('/import?target=${current.semester.id}');
@@ -340,9 +406,14 @@ class _TimetableHomePageState extends ConsumerState<TimetableHomePage> {
                   context.push('/settings');
               }
             },
-            itemBuilder: (context) => const [
-              PopupMenuItem(value: 'import', child: Text('导入课表')),
-              PopupMenuItem(value: 'settings', child: Text('设置')),
+            itemBuilder: (context) => [
+              if (current != null)
+                PopupMenuItem(
+                  value: 'refresh',
+                  child: Text(currentAccount == null ? '登录教务并刷新' : '刷新当前课表'),
+                ),
+              const PopupMenuItem(value: 'import', child: Text('导入课表')),
+              const PopupMenuItem(value: 'settings', child: Text('设置')),
             ],
           ),
         ],

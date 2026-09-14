@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:schedulr/core/storage/app_database.dart' show AppDatabase;
+import 'package:schedulr/core/storage/secure_session_store.dart';
 import 'package:schedulr/features/desktop_widget/widget_providers.dart';
 import 'package:schedulr/features/desktop_widget/widget_publisher.dart';
+import 'package:schedulr/features/import_timetable/data/providers.dart'
+    as import_providers;
 import 'package:schedulr/features/settings/presentation/pages/settings_route_page.dart';
 import 'package:schedulr/features/timetable/data/providers.dart';
 import 'package:schedulr/features/timetable/data/timetable_repository.dart';
@@ -35,12 +38,16 @@ void main() {
       ),
     );
     final bridge = _RecordingWidgetBridge();
+    final secureAdapter = _MemorySecureAdapter();
+    var cookiesCleared = false;
     final router = GoRouter(
       initialLocation: '/settings',
       routes: [
         GoRoute(
           path: '/settings',
-          builder: (_, _) => const SettingsRoutePage(),
+          builder: (_, _) => SettingsRoutePage(
+            clearWebViewCookies: () async => cookiesCleared = true,
+          ),
         ),
         GoRoute(
           path: '/onboarding',
@@ -56,6 +63,9 @@ void main() {
           timetableDatabaseProvider.overrideWithValue(database),
           timetableRepositoryProvider.overrideWithValue(repository),
           widgetStorageBridgeProvider.overrideWithValue(bridge),
+          import_providers.secureKeyValueAdapterProvider.overrideWithValue(
+            secureAdapter,
+          ),
         ],
         child: MaterialApp.router(routerConfig: router),
       ),
@@ -74,8 +84,30 @@ void main() {
       'clear',
     ]);
     expect(router.state.uri.path, '/onboarding');
+    expect(cookiesCleared, isTrue);
+    expect(secureAdapter.values, isEmpty);
     expect(find.text('首次设置页'), findsOneWidget);
   });
+}
+
+class _MemorySecureAdapter implements SecureKeyValueAdapter {
+  final values = <String, String>{};
+
+  @override
+  Future<String?> read(String key) async => values[key];
+
+  @override
+  Future<Map<String, String>> readAll() async => Map.of(values);
+
+  @override
+  Future<void> write(String key, String value) async {
+    values[key] = value;
+  }
+
+  @override
+  Future<void> delete(String key) async {
+    values.remove(key);
+  }
 }
 
 class _RecordingWidgetBridge implements WidgetStorageBridge {

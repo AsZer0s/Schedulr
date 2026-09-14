@@ -243,27 +243,13 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
         ),
     ];
     if (usesCupertinoConventions(context)) {
-      return await showCupertinoDialog<bool>(
-            context: context,
-            builder: (context) => CupertinoAlertDialog(
-              title: Text(title),
-              content: ConstrainedBox(
-                constraints: const BoxConstraints(maxHeight: 360),
-                child: SingleChildScrollView(child: Column(children: items)),
-              ),
-              actions: [
-                CupertinoDialogAction(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('返回修改'),
-                ),
-                CupertinoDialogAction(
-                  onPressed: () => Navigator.pop(context, true),
-                  child: const Text('仍然保存'),
-                ),
-              ],
-            ),
-          ) ??
-          false;
+      return showAdaptiveConfirmationDialog(
+        context,
+        title: title,
+        message: conflicts.map(_conflictDescription).join('\n\n'),
+        confirmLabel: '仍然保存',
+        cancelLabel: '返回修改',
+      );
     }
     return await showDialog<bool>(
           context: context,

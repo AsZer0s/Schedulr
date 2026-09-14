@@ -8,6 +8,7 @@ import 'package:go_router/go_router.dart';
 import 'package:schedulr/features/timetable/data/providers.dart';
 import 'package:schedulr/features/timetable/domain/timetable_models.dart';
 import 'package:schedulr/features/timetable/presentation/pages/timetable_home_page.dart';
+import 'package:schedulr/features/timetable/presentation/pages/timetable_switcher_sheet.dart';
 import 'package:schedulr/features/timetable/presentation/weekly_timetable_view.dart';
 
 void main() {
@@ -62,6 +63,46 @@ void main() {
       expect(find.text('新建空白'), findsOneWidget);
     });
 
+    testWidgets('iOS 切换 sheet 和当前课表行使用动态系统背景', (tester) async {
+      final current = _semester(name: '主课表');
+      final other = _semester(id: 'other', name: '第二课表', isCurrent: false);
+      final harness = await _pumpHome(
+        tester,
+        today: DateTime(2026, 9, 16),
+        initialTimetable: _timetable(semester: current),
+        semesters: [current, other],
+        platform: TargetPlatform.iOS,
+      );
+      addTearDown(harness.dispose);
+
+      await tester.tap(find.byKey(const ValueKey('timetable-title-button')));
+      await tester.pumpAndSettle();
+
+      final sheetContext = tester.element(
+        find.byKey(TimetableSwitcherSheet.sheetRootKey),
+      );
+      final sheet = tester.widget<Material>(
+        find.byKey(TimetableSwitcherSheet.sheetRootKey),
+      );
+      final currentRow = tester.widget<ListTile>(
+        find.byKey(TimetableSwitcherSheet.rowKey(current.id)),
+      );
+      final otherRow = tester.widget<ListTile>(
+        find.byKey(TimetableSwitcherSheet.rowKey(other.id)),
+      );
+
+      expect(sheet.type, MaterialType.canvas);
+      expect(
+        sheet.color,
+        CupertinoColors.systemBackground.resolveFrom(sheetContext),
+      );
+      expect(
+        currentRow.tileColor,
+        CupertinoColors.secondarySystemBackground.resolveFrom(sheetContext),
+      );
+      expect(otherRow.tileColor, isNull);
+    });
+
     testWidgets('标题显示当前课表名称并提供切换语义', (tester) async {
       final semantics = tester.ensureSemantics();
       final harness = await _pumpHome(
@@ -99,7 +140,7 @@ void main() {
       expect(find.text('选择课程表'), findsOneWidget);
       expect(find.text('主课表'), findsWidgets);
       expect(find.text('选修课表'), findsOneWidget);
-      expect(find.text('2026 秋季学期'), findsOneWidget);
+      expect(find.textContaining('2026 秋季学期'), findsOneWidget);
       expect(find.byKey(const ValueKey('current-semester')), findsOneWidget);
     });
 
@@ -194,6 +235,7 @@ void main() {
             builder: (context, state) => TimetableHomePage(
               createBlankTimetable: (name, template) async => 'import-target',
               selectTimetable: (id) async {},
+              loadTimetableAccountIds: () async => const <String>{},
               clearImportCookies: () async => cookiesCleared = true,
             ),
           ),
@@ -244,6 +286,56 @@ void main() {
       expect(router.state.uri.path, '/import');
       expect(router.state.uri.queryParameters['target'], 'import-target');
       expect(router.state.uri.queryParameters['source'], 'bitc');
+    });
+
+    testWidgets('快速刷新携带当前课表和 BITC refresh 参数', (tester) async {
+      final current = _semester(name: '主课表');
+      final router = GoRouter(
+        routes: [
+          GoRoute(
+            path: '/',
+            builder: (context, state) => TimetableHomePage(
+              loadTimetableAccountIds: () async => {current.id},
+            ),
+          ),
+          GoRoute(
+            path: '/import',
+            builder: (context, state) => const Scaffold(body: Text('刷新页面')),
+          ),
+        ],
+      );
+      addTearDown(router.dispose);
+      final timetableController = StreamController<SemesterTimetable?>();
+      final semestersController = StreamController<List<Semester>>();
+      addTearDown(timetableController.close);
+      addTearDown(semestersController.close);
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            currentDateProvider.overrideWithValue(DateTime(2026, 9, 16)),
+            currentTimetableProvider.overrideWith(
+              (ref) => timetableController.stream,
+            ),
+            timetablesProvider.overrideWith(
+              (ref) => semestersController.stream,
+            ),
+          ],
+          child: MaterialApp.router(routerConfig: router),
+        ),
+      );
+      timetableController.add(_timetable(semester: current));
+      semestersController.add([current]);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('登录教务并刷新'));
+      await tester.pumpAndSettle();
+
+      expect(router.state.uri.path, '/import');
+      expect(router.state.uri.queryParameters['target'], current.id);
+      expect(router.state.uri.queryParameters['source'], 'bitc');
+      expect(router.state.uri.queryParameters['refresh'], '1');
     });
 
     testWidgets('普通导入菜单携带当前课表 target', (tester) async {
@@ -482,15 +574,18 @@ void main() {
       addTearDown(harness.dispose);
 
       await tester.drag(
-        find.byType(WeeklyTimetableView),
-        const Offset(-120, 0),
+        find.byKey(const ValueKey('timetable-week-pager')),
+        const Offset(-700, 0),
       );
-      await tester.pump();
+      await tester.pumpAndSettle();
       expect(find.text('第 3 周'), findsOneWidget);
       expect(find.textContaining('回到本周'), findsOneWidget);
 
-      await tester.drag(find.byType(WeeklyTimetableView), const Offset(120, 0));
-      await tester.pump();
+      await tester.drag(
+        find.byKey(const ValueKey('timetable-week-pager')),
+        const Offset(700, 0),
+      );
+      await tester.pumpAndSettle();
       expect(find.text('第 2 周'), findsOneWidget);
       expect(find.textContaining('回到本周'), findsOneWidget);
       expect(find.text('第 2 周 · 今天'), findsNothing);
@@ -509,8 +604,11 @@ void main() {
       addTearDown(harness.dispose);
 
       expect(find.text('第 1 周 · 今天'), findsOneWidget);
-      await tester.drag(find.byType(WeeklyTimetableView), const Offset(120, 0));
-      await tester.pump();
+      await tester.drag(
+        find.byKey(const ValueKey('timetable-week-pager')),
+        const Offset(700, 0),
+      );
+      await tester.pumpAndSettle();
 
       expect(find.text('第 1 周 · 今天'), findsOneWidget);
       expect(find.textContaining('回到本周'), findsNothing);
@@ -731,6 +829,7 @@ Future<_HomeHarness> _pumpHome(
           renameTimetable: onRename,
           selectTimetable: onSelect,
           deleteTimetable: onDelete,
+          loadTimetableAccountIds: () async => const <String>{},
           clearImportCookies: onClearCookies,
         ),
       ),

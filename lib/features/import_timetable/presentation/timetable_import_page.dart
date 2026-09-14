@@ -1,12 +1,17 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:webview_flutter/webview_flutter.dart';
 
 import '../../../app/widgets/adaptive_scaffold.dart';
 import '../../../core/platform/adaptive_ui.dart';
-
+import '../../../core/storage/secure_session_store.dart';
 import '../../../integrations/zfsoft/zfsoft.dart';
+import '../../timetable/domain/semester_timetable.dart';
+
+import '../domain/bitc_account.dart';
 import '../domain/import_timetable.dart';
 import 'bitc/bitc_web_session_page.dart';
+import 'bitc_refresh_preview_page.dart';
 import 'import_preview_page.dart';
 
 enum ImportSourceChoice { bitc, demo }
@@ -15,19 +20,45 @@ class TimetableImportPage extends StatefulWidget {
   const TimetableImportPage({
     required this.existingEntries,
     required this.onCommit,
+    required this.onCompleted,
     required this.targetTimetableName,
     required this.initialAcademicYear,
     required this.initialTerm,
+    required this.timetableId,
+    required this.existingTimetable,
     this.initialSource = ImportSourceChoice.bitc,
+    this.initialAccount,
+    this.refreshMode = false,
+    this.onRefresh,
+    this.onSaveAccount,
+    this.onDeleteAccount,
+    this.secureSessionStore = const SecureSessionStore(),
+    this.clearWebViewCookies,
     super.key,
   });
 
   final List<ExistingTimetableEntry> existingEntries;
   final Future<void> Function(ImportCommitRequest request) onCommit;
+  final VoidCallback onCompleted;
   final String targetTimetableName;
   final String initialAcademicYear;
   final int initialTerm;
+  final String timetableId;
+  final SemesterTimetable existingTimetable;
   final ImportSourceChoice initialSource;
+  final BitcAccount? initialAccount;
+  final bool refreshMode;
+  final Future<void> Function(
+    ImportedTimetable imported,
+    ImportedTimingProfile? timingProfile,
+    BitcRefreshPlan plan,
+  )?
+  onRefresh;
+  final Future<void> Function(String accountId, DateTime refreshedAt)?
+  onSaveAccount;
+  final Future<void> Function()? onDeleteAccount;
+  final SecureSessionStore secureSessionStore;
+  final Future<void> Function()? clearWebViewCookies;
 
   @override
   State<TimetableImportPage> createState() => _TimetableImportPageState();
@@ -36,18 +67,26 @@ class TimetableImportPage extends StatefulWidget {
 class _TimetableImportPageState extends State<TimetableImportPage> {
   final _usernameController = TextEditingController(text: 'demo');
   final _passwordController = TextEditingController(text: 'demo');
+  late final TextEditingController _bitcAccountController;
   late final TextEditingController _academicYearController;
 
   late ImportSourceChoice _source;
   ImportStrategy _strategy = ImportStrategy.merge;
   late int _term;
+  late bool _saveBitcAccount;
   bool _isLoading = false;
   String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _source = widget.initialSource;
+    _source = widget.refreshMode
+        ? ImportSourceChoice.bitc
+        : widget.initialSource;
+    _bitcAccountController = TextEditingController(
+      text: widget.initialAccount?.accountId ?? '',
+    );
+    _saveBitcAccount = true;
     _academicYearController = TextEditingController(
       text: widget.initialAcademicYear,
     );
@@ -58,6 +97,7 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
+    _bitcAccountController.dispose();
     _academicYearController.dispose();
     super.dispose();
   }
@@ -65,6 +105,16 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   Future<void> _startImport() async {
     if (_academicYearController.text.trim().isEmpty) {
       setState(() => _errorMessage = '请填写学年。');
+      return;
+    }
+    if (_source == ImportSourceChoice.bitc &&
+        (_saveBitcAccount || widget.refreshMode) &&
+        _bitcAccountController.text.trim().isEmpty) {
+      setState(
+        () => _errorMessage = widget.refreshMode
+            ? '请输入此课表对应的 BITC 教务账号后再刷新。'
+            : '请输入需要保存的 BITC 教务账号。',
+      );
       return;
     }
     if (_source == ImportSourceChoice.demo &&
@@ -87,6 +137,10 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
       if (timetable == null || !mounted) return;
       final selectedProfile = await _selectTimingProfile(timetable);
       if (!mounted) return;
+      if (widget.refreshMode) {
+        await _previewRefresh(timetable, selectedProfile);
+        return;
+      }
       final calculated = const ImportPreviewCalculator().calculate(
         imported: timetable.entries,
         existing: _strategy == ImportStrategy.replace
@@ -99,8 +153,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
         items: calculated.items,
         issues: [...timetable.issues, ...calculated.issues],
       );
-      await Navigator.of(context).push<void>(
-        adaptivePageRoute<void>(
+      final completed = await Navigator.of(context).push<bool>(
+        adaptivePageRoute<bool>(
           context: context,
           builder: (context) => ImportPreviewPage(
             preview: preview,
@@ -108,35 +162,35 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
             targetTimetableName: widget.targetTimetableName,
             timingProfile: selectedProfile,
             hasCalendarUpdate: timetable.calendar != null,
-            onCommit: () async {
-              await widget.onCommit(
-                ImportCommitRequest(
-                  preview: preview,
-                  term: timetable.term,
-                  calendar: timetable.calendar,
-                  timingProfile: selectedProfile,
-                ),
-              );
-              if (!context.mounted) return;
-              Navigator.of(context).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    preview.addedCount > 0
-                        ? '已导入 ${preview.addedCount} 条新安排。'
-                        : selectedProfile?.schedule != null &&
-                              timetable.calendar != null
-                        ? '校历与作息已更新。'
-                        : selectedProfile?.schedule != null
-                        ? '作息已更新。'
-                        : '校历已更新。',
-                  ),
-                ),
-              );
-            },
+            onCommit: () => widget.onCommit(
+              ImportCommitRequest(
+                preview: preview,
+                term: timetable.term,
+                calendar: timetable.calendar,
+                timingProfile: selectedProfile,
+              ),
+            ),
           ),
         ),
       );
+      if (completed != true || !mounted) return;
+      await _saveAccountAfterSuccess();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            preview.addedCount > 0
+                ? '已导入 ${preview.addedCount} 条新安排。'
+                : selectedProfile?.schedule != null &&
+                      timetable.calendar != null
+                ? '校历与作息已更新。'
+                : selectedProfile?.schedule != null
+                ? '作息已更新。'
+                : '校历已更新。',
+          ),
+        ),
+      );
+      widget.onCompleted();
     } on FormatException catch (error) {
       if (mounted) setState(() => _errorMessage = error.message);
     } on TimetableImportException catch (error) {
@@ -145,6 +199,61 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
       if (mounted) setState(() => _errorMessage = '读取课表时发生未知错误。');
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _previewRefresh(
+    ImportedTimetable timetable,
+    ImportedTimingProfile? selectedProfile,
+  ) async {
+    final plan = BitcRefreshReconciler().reconcile(
+      existing: widget.existingTimetable,
+      imported: timetable.entries,
+    );
+    final completed = await Navigator.of(context).push<bool>(
+      adaptivePageRoute<bool>(
+        context: context,
+        builder: (context) => BitcRefreshPreviewPage(
+          plan: plan,
+          timetableName: widget.targetTimetableName,
+          onCommit: () async {
+            final callback = widget.onRefresh;
+            if (callback == null) {
+              throw StateError('Refresh is not configured.');
+            }
+            await callback(timetable, selectedProfile, plan);
+          },
+        ),
+      ),
+    );
+    if (completed != true || !mounted) return;
+    await _saveAccountAfterSuccess();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '课表已刷新：新增 ${plan.addedCount}、更新 ${plan.updatedCount}、删除 ${plan.removedCount}。',
+        ),
+      ),
+    );
+    widget.onCompleted();
+  }
+
+  Future<void> _saveAccountAfterSuccess() async {
+    try {
+      if (!_saveBitcAccount || _source != ImportSourceChoice.bitc) {
+        if (widget.initialAccount != null) await widget.onDeleteAccount?.call();
+        return;
+      }
+      final account = _bitcAccountController.text.trim();
+      if (account.isEmpty) return;
+      await widget.onSaveAccount?.call(account, DateTime.now());
+    } on Object {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('课表已保存，但教务账号未能写入系统安全存储。')));
+      }
     }
   }
 
@@ -220,6 +329,16 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   }
 
   Future<ImportedTimetable?> _fetchBitcTimetable() async {
+    final account = _bitcAccountController.text.trim();
+    final currentSession = account.isEmpty
+        ? null
+        : await widget.secureSessionStore.readCurrentWebSessionAccount();
+    final canReuseSession = account.isNotEmpty && currentSession == account;
+    if (!canReuseSession) {
+      await (widget.clearWebViewCookies ??
+          WebViewCookieManager().clearCookies)();
+      await widget.secureSessionStore.clearCurrentWebSessionAccount();
+    }
     final request = ImportTermRequest(
       academicYear: _academicYearController.text.trim(),
       term: _term,
@@ -232,6 +351,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
           adaptivePageRoute<String>(
             context: context,
             builder: (context) => BitcWebSessionPage(
+              savedAccount: account.isEmpty ? null : account,
+              autoFetch: widget.refreshMode && canReuseSession,
               request: BitcTimetableWebRequest(
                 academicYearStart: protocolTerm.academicYear,
                 termCode: '${protocolTerm.term}',
@@ -246,6 +367,9 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
           );
         }
         payload = result;
+        if (account.isNotEmpty) {
+          await widget.secureSessionStore.markCurrentWebSessionAccount(account);
+        }
         return result;
       },
     );
@@ -292,28 +416,30 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
           ),
         ),
         const SizedBox(height: 12),
-        SegmentedButton<ImportSourceChoice>(
-          segments: const [
-            ButtonSegment(
-              value: ImportSourceChoice.bitc,
-              label: Text('BITC 教务'),
-              icon: Icon(Icons.school_outlined),
-            ),
-            ButtonSegment(
-              value: ImportSourceChoice.demo,
-              label: Text('本地演示'),
-              icon: Icon(Icons.science_outlined),
-            ),
-          ],
-          selected: {_source},
-          onSelectionChanged: _isLoading
-              ? null
-              : (selection) => setState(() {
-                  _source = selection.single;
-                  _errorMessage = null;
-                }),
-        ),
-        const SizedBox(height: 16),
+        if (!widget.refreshMode) ...[
+          SegmentedButton<ImportSourceChoice>(
+            segments: const [
+              ButtonSegment(
+                value: ImportSourceChoice.bitc,
+                label: Text('BITC 教务'),
+                icon: Icon(Icons.school_outlined),
+              ),
+              ButtonSegment(
+                value: ImportSourceChoice.demo,
+                label: Text('本地演示'),
+                icon: Icon(Icons.science_outlined),
+              ),
+            ],
+            selected: {_source},
+            onSelectionChanged: _isLoading
+                ? null
+                : (selection) => setState(() {
+                    _source = selection.single;
+                    _errorMessage = null;
+                  }),
+          ),
+          const SizedBox(height: 16),
+        ],
         Card(
           color: theme.colorScheme.secondaryContainer,
           child: Padding(
@@ -326,6 +452,32 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
           ),
         ),
         const SizedBox(height: 20),
+        if (isBitc) ...[
+          TextField(
+            key: const ValueKey('bitc-account-field'),
+            controller: _bitcAccountController,
+            textInputAction: TextInputAction.next,
+            autocorrect: false,
+            enableSuggestions: false,
+            decoration: const InputDecoration(
+              labelText: 'BITC 教务账号',
+              hintText: '仅用于账号预填和课表关联',
+              prefixIcon: Icon(Icons.badge_outlined),
+            ),
+          ),
+          const SizedBox(height: 8),
+          SwitchListTile.adaptive(
+            key: const ValueKey('save-bitc-account'),
+            contentPadding: EdgeInsets.zero,
+            value: _saveBitcAccount,
+            title: const Text('保存账号用于快速刷新'),
+            subtitle: const Text('只保存账号到系统安全存储，不读取或保存密码。'),
+            onChanged: _isLoading
+                ? null
+                : (value) => setState(() => _saveBitcAccount = value),
+          ),
+          const SizedBox(height: 8),
+        ],
         if (!isBitc) ...[
           TextField(
             controller: _usernameController,
@@ -369,25 +521,27 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
             setState(() => _term = selection.single);
           },
         ),
-        const SizedBox(height: 16),
-        SegmentedButton<ImportStrategy>(
-          segments: const [
-            ButtonSegment(
-              value: ImportStrategy.merge,
-              label: Text('合并'),
-              icon: Icon(Icons.merge_rounded),
-            ),
-            ButtonSegment(
-              value: ImportStrategy.replace,
-              label: Text('替换'),
-              icon: Icon(Icons.swap_horiz_rounded),
-            ),
-          ],
-          selected: {_strategy},
-          onSelectionChanged: (selection) {
-            setState(() => _strategy = selection.single);
-          },
-        ),
+        if (!widget.refreshMode) ...[
+          const SizedBox(height: 16),
+          SegmentedButton<ImportStrategy>(
+            segments: const [
+              ButtonSegment(
+                value: ImportStrategy.merge,
+                label: Text('合并'),
+                icon: Icon(Icons.merge_rounded),
+              ),
+              ButtonSegment(
+                value: ImportStrategy.replace,
+                label: Text('替换'),
+                icon: Icon(Icons.swap_horiz_rounded),
+              ),
+            ],
+            selected: {_strategy},
+            onSelectionChanged: (selection) {
+              setState(() => _strategy = selection.single);
+            },
+          ),
+        ],
         if (_errorMessage case final message?) ...[
           const SizedBox(height: 14),
           Text(message, style: TextStyle(color: theme.colorScheme.error)),
@@ -410,6 +564,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
             label: Text(
               _isLoading
                   ? '正在生成预览…'
+                  : widget.refreshMode
+                  ? '快速刷新 BITC 课表'
                   : isBitc
                   ? '登录 BITC 并读取课表'
                   : '登录并预览演示课表',
@@ -431,6 +587,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
                   child: Text(
                     _isLoading
                         ? '正在生成预览…'
+                        : widget.refreshMode
+                        ? '快速刷新 BITC 课表'
                         : isBitc
                         ? '登录 BITC 并读取课表'
                         : '登录并预览演示课表',

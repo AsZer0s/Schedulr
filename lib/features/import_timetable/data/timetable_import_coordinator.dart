@@ -87,6 +87,52 @@ class TimetableImportCoordinator {
     );
   }
 
+  Future<BitcRefreshPlan> refresh({
+    required SemesterTimetable currentTimetable,
+    required ImportedTimetable imported,
+    ImportedTimingProfile? timingProfile,
+    BitcRefreshPlan? preparedPlan,
+  }) async {
+    final plan =
+        preparedPlan ??
+        BitcRefreshReconciler().reconcile(
+          existing: currentTimetable,
+          imported: imported.entries,
+        );
+    final currentSemester = currentTimetable.semester;
+    final calendar = imported.calendar;
+    final semester = currentSemester.copyWith(
+      academicYear: imported.term.academicYear,
+      term: '${imported.term.term}',
+      name: '${imported.term.academicYear} 第${_termName(imported.term.term)}学期',
+      startDate: calendar?.startDate,
+      teachingWeeks: calendar?.teachingWeeks,
+    );
+
+    var replacePeriods = false;
+    var periodDefinitions = currentTimetable.periodDefinitions;
+    final schedule = timingProfile?.schedule;
+    if (schedule != null &&
+        _coversAll(
+          schedule,
+          plan.desiredCourses.expand((course) => course.sessions),
+        )) {
+      replacePeriods = true;
+      periodDefinitions = _toPeriodDefinitions(semester.id, schedule);
+    }
+
+    await repository.applyImport(
+      SemesterTimetable(
+        semester: semester,
+        courses: plan.desiredCourses,
+        periodDefinitions: periodDefinitions,
+      ),
+      replaceCourses: true,
+      replacePeriods: replacePeriods,
+    );
+    return plan;
+  }
+
   bool _coversAll(
     ImportedPeriodSchedule schedule,
     Iterable<CourseSession> sessions,

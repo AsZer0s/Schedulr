@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:schedulr/features/import_timetable/domain/import_timetable.dart';
@@ -42,6 +44,54 @@ void main() {
     await tester.pump();
     expect(committed, isTrue);
   });
+
+  testWidgets('failed commit stays on preview and reports failure only', (
+    tester,
+  ) async {
+    final commit = Completer<void>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: ImportPreviewPage(
+          preview: _preview(),
+          sourceName: '本地演示',
+          targetTimetableName: '测试课表',
+          onCommit: () => commit.future,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('import-preview-commit')));
+    await tester.pump();
+    expect(find.text('正在导入…'), findsOneWidget);
+
+    commit.completeError(StateError('write failed'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('导入预览'), findsOneWidget);
+    expect(find.text('导入失败，请重试。'), findsOneWidget);
+    expect(find.textContaining('已导入'), findsNothing);
+    final button = tester.widget<FilledButton>(find.byType(FilledButton));
+    expect(button.onPressed, isNotNull);
+  });
+}
+
+ImportPreview _preview() {
+  return ImportPreview(
+    strategy: ImportStrategy.merge,
+    items: [
+      ImportPreviewItem(
+        imported: ImportedTimetableEntry(
+          externalId: 'demo-course',
+          title: '演示课程',
+          dayOfWeek: DateTime.monday,
+          startPeriod: 1,
+          endPeriod: 2,
+          weeks: const {1},
+        ),
+        kind: ImportPreviewItemKind.added,
+      ),
+    ],
+  );
 }
 
 List<ImportedPeriod> _periods(

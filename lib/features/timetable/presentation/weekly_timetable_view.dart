@@ -40,6 +40,8 @@ class WeeklyTimetableView extends StatefulWidget {
     this.dayWidth = 120,
     this.periodRowHeight = 68,
     this.periodAxisWidth = 64,
+    this.initialVerticalOffset = 0,
+    this.onVerticalOffsetChanged,
     super.key,
   }) : assert(height > 0),
        assert(dayWidth > 0),
@@ -117,6 +119,8 @@ class WeeklyTimetableView extends StatefulWidget {
   /// readable, and the timetable scrolls vertically otherwise.
   final double periodRowHeight;
   final double periodAxisWidth;
+  final double initialVerticalOffset;
+  final ValueChanged<double>? onVerticalOffsetChanged;
 
   @override
   State<WeeklyTimetableView> createState() => _WeeklyTimetableViewState();
@@ -144,8 +148,7 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
   final ScrollController _gridVerticalController = ScrollController();
   bool _synchronizingScroll = false;
   bool _verticalClampScheduled = false;
-  double _horizontalDragDistance = 0;
-  double _gestureWidth = 0;
+  bool _initialVerticalOffsetRestored = false;
 
   @override
   void initState() {
@@ -154,6 +157,35 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
     _gridHorizontalController.addListener(_syncGridToHeader);
     _axisVerticalController.addListener(_syncAxisToGrid);
     _gridVerticalController.addListener(_syncGridToAxis);
+    _gridVerticalController.addListener(_reportVerticalOffset);
+  }
+
+  void _reportVerticalOffset() {
+    widget.onVerticalOffsetChanged?.call(_gridVerticalController.offset);
+  }
+
+  void _restoreInitialVerticalOffset() {
+    if (_initialVerticalOffsetRestored || !_gridVerticalController.hasClients) {
+      return;
+    }
+    _initialVerticalOffsetRestored = true;
+    final offset = widget.initialVerticalOffset.clamp(
+      _gridVerticalController.position.minScrollExtent,
+      _gridVerticalController.position.maxScrollExtent,
+    );
+    if ((_gridVerticalController.offset - offset).abs() >= 0.5) {
+      _synchronizingScroll = true;
+      _gridVerticalController.jumpTo(offset);
+      if (_axisVerticalController.hasClients) {
+        _axisVerticalController.jumpTo(
+          offset.clamp(
+            _axisVerticalController.position.minScrollExtent,
+            _axisVerticalController.position.maxScrollExtent,
+          ),
+        );
+      }
+      _synchronizingScroll = false;
+    }
   }
 
   @override
@@ -231,45 +263,7 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
     });
   }
 
-  void _startHorizontalDrag(DragStartDetails details) {
-    _horizontalDragDistance = 0;
-    _gestureWidth = context.size?.width ?? 0;
-  }
-
-  void _updateHorizontalDrag(DragUpdateDetails details) {
-    _horizontalDragDistance += details.primaryDelta ?? 0;
-  }
-
-  void _endHorizontalDrag(DragEndDetails details) {
-    final distance = _horizontalDragDistance;
-    final velocity = details.primaryVelocity ?? 0;
-    final distanceThreshold = math.min(72.0, _gestureWidth * 0.18);
-    final distanceQualified = distance.abs() >= distanceThreshold;
-    final flingQualified = velocity.abs() >= 600 && distance.abs() >= 20;
-    _cancelHorizontalDrag();
-    if (!distanceQualified && !flingQualified) return;
-    if (distance < 0) {
-      widget.onNextWeek?.call();
-    } else if (distance > 0) {
-      widget.onPreviousWeek?.call();
-    }
-  }
-
-  void _cancelHorizontalDrag() {
-    _horizontalDragDistance = 0;
-    _gestureWidth = 0;
-  }
-
-  Widget _withWeekSwipe(Widget child) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onHorizontalDragStart: _startHorizontalDrag,
-      onHorizontalDragUpdate: _updateHorizontalDrag,
-      onHorizontalDragEnd: _endHorizontalDrag,
-      onHorizontalDragCancel: _cancelHorizontalDrag,
-      child: child,
-    );
-  }
+  Widget _withWeekSwipe(Widget child) => child;
 
   @override
   Widget build(BuildContext context) {
@@ -419,6 +413,11 @@ class _WeeklyTimetableViewState extends State<WeeklyTimetableView> {
                 : const NeverScrollableScrollPhysics();
 
             _scheduleVerticalScrollClamp();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                _restoreInitialVerticalOffset();
+              }
+            });
 
             final axisScrollView = SingleChildScrollView(
               key: WeeklyTimetableView.axisVerticalScrollKey,

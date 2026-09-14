@@ -9,9 +9,16 @@ import '../../../../app/widgets/adaptive_scaffold.dart';
 import '../../../../core/platform/adaptive_ui.dart';
 
 class BitcWebSessionPage extends StatefulWidget {
-  const BitcWebSessionPage({required this.request, super.key});
+  const BitcWebSessionPage({
+    required this.request,
+    this.savedAccount,
+    this.autoFetch = false,
+    super.key,
+  });
 
   final BitcTimetableWebRequest request;
+  final String? savedAccount;
+  final bool autoFetch;
 
   @override
   State<BitcWebSessionPage> createState() => _BitcWebSessionPageState();
@@ -38,6 +45,7 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
   bool _isLoading = true;
   bool _isFetching = false;
   bool _canFetch = false;
+  bool _autoFetchAttempted = false;
   String? _message;
 
   @override
@@ -85,6 +93,16 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
                   uri?.host == 'jwxt.vpn.bitc.edu.cn' &&
                   uri?.path.contains('xskbcx_cxXskbcxIndex.html') == true;
             });
+            if (widget.savedAccount != null &&
+                uri != null &&
+                _isAllowedHost(uri.host) &&
+                !_canFetch) {
+              unawaited(_prefillAccount());
+            }
+            if (widget.autoFetch && _canFetch && !_autoFetchAttempted) {
+              _autoFetchAttempted = true;
+              unawaited(_fetchTimetable());
+            }
           },
           onNavigationRequest: (request) {
             final uri = Uri.tryParse(request.url);
@@ -110,6 +128,16 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
 
   bool _isAllowedHost(String host) {
     return host == 'bitc.edu.cn' || host.endsWith('.bitc.edu.cn');
+  }
+
+  Future<void> _prefillAccount() async {
+    final account = widget.savedAccount?.trim();
+    if (account == null || account.isEmpty || !mounted) return;
+    try {
+      await _controller.runJavaScript(buildBitcAccountPrefillScript(account));
+    } on Object {
+      // Login markup can change; the user can still enter the account manually.
+    }
   }
 
   Future<void> _fetchTimetable() async {
@@ -225,6 +253,33 @@ class _BitcWebSessionPageState extends State<BitcWebSessionPage> {
           : null,
     );
   }
+}
+
+String buildBitcAccountPrefillScript(String accountId) {
+  final account = accountId.trim();
+  if (account.isEmpty) return '';
+  return '''
+    (function () {
+      const account = ${jsonEncode(account)};
+      const selectors = [
+        'input[name="username"]',
+        'input[name="userName"]',
+        'input[id="username"]',
+        'input[id="userName"]',
+        'input[type="text"]'
+      ];
+      const field = selectors.map(function (selector) {
+        return document.querySelector(selector);
+      }).find(function (element) {
+        return element && element.type !== 'password';
+      });
+      if (field && !field.value) {
+        field.value = account;
+        field.dispatchEvent(new Event('input', {bubbles: true}));
+        field.dispatchEvent(new Event('change', {bubbles: true}));
+      }
+    })();
+  ''';
 }
 
 String buildBitcTimetableBridgeScript({
