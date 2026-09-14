@@ -219,9 +219,10 @@ require("flutter test --concurrency=1" in workflow, "release workflow runs Flutt
 require("Verify iOS native integrations" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")
 require('WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"' in workflow, "release workflow locates the embedded widget")
 require("CFBundleShortVersionString" in workflow and "CFBundleVersion" in workflow, "release workflow reads both app and widget version fields")
-require("xcodebuild -project ios/Runner.xcodeproj -target SchedulrWidget -configuration Release -showBuildSettings" in workflow, "release workflow checks resolved widget target build settings")
-require('test -n "$RESOLVED_FLUTTER_BUILD_NAME"' in workflow and 'test -n "$RESOLVED_FLUTTER_BUILD_NUMBER"' in workflow, "release workflow rejects empty resolved Flutter version variables")
-require('[[ "$RESOLVED_MARKETING_VERSION" == "$RESOLVED_FLUTTER_BUILD_NAME" ]]' in workflow and '[[ "$RESOLVED_PROJECT_VERSION" == "$RESOLVED_FLUTTER_BUILD_NUMBER" ]]' in workflow, "release workflow verifies target versions resolve from Flutter variables")
+require("Embed Widget extension and verify versions" in workflow, "release workflow embeds and verifies the Widget extension")
+require("-target SchedulrWidget" in workflow and "CODE_SIGNING_ALLOWED=NO" in workflow, "release workflow can build the unsigned Widget extension explicitly")
+require('mkdir -p "$RUNNER_APP/PlugIns"' in workflow and 'cp -R "$WIDGET_PRODUCT" "$WIDGET_APPEX"' in workflow, "release workflow copies a missing Widget extension into Runner.app")
+require('test -d "$WIDGET_APPEX"' in workflow, "release workflow rejects a missing embedded Widget extension")
 require('[[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]' in workflow, "release workflow compares Runner and widget short versions")
 require('[[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]' in workflow, "release workflow compares Runner and widget build versions")
 

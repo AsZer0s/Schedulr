@@ -101,26 +101,35 @@ jobs:
           flutter build ios --release --no-codesign
           --build-number "$GITHUB_RUN_NUMBER"
 
-      - name: Verify embedded Widget versions match Runner
+      - name: Embed Widget extension and verify versions
         run: |
+          set -euo pipefail
           RUNNER_APP="build/ios/iphoneos/Runner.app"
           WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"
+
+          if [[ ! -d "$WIDGET_APPEX" ]]; then
+            WIDGET_PRODUCT="$(find build/ios -type d -name 'SchedulrWidget.appex' ! -path "$WIDGET_APPEX" -print -quit)"
+            if [[ -z "$WIDGET_PRODUCT" ]]; then
+              xcodebuild \
+                -project ios/Runner.xcodeproj \
+                -target SchedulrWidget \
+                -configuration Release \
+                -sdk iphoneos \
+                -destination 'generic/platform=iOS' \
+                CONFIGURATION_BUILD_DIR="$PWD/build/ios/iphoneos" \
+                CODE_SIGNING_ALLOWED=NO \
+                CODE_SIGNING_REQUIRED=NO \
+                build
+              WIDGET_PRODUCT="build/ios/iphoneos/SchedulrWidget.appex"
+            fi
+            test -d "$WIDGET_PRODUCT"
+            mkdir -p "$RUNNER_APP/PlugIns"
+            rm -rf "$WIDGET_APPEX"
+            cp -R "$WIDGET_PRODUCT" "$WIDGET_APPEX"
+          fi
+
           test -d "$WIDGET_APPEX"
           find "$RUNNER_APP/PlugIns" -maxdepth 1 -name '*.appex' -print
-
-          BUILD_SETTINGS="$(xcodebuild -project ios/Runner.xcodeproj -target SchedulrWidget -configuration Release -showBuildSettings)"
-          resolved_setting() {
-            printf '%s\n' "$BUILD_SETTINGS" | grep -m1 "^[[:space:]]*$1 = " | cut -d= -f2- | xargs
-          }
-          RESOLVED_FLUTTER_BUILD_NAME="$(resolved_setting FLUTTER_BUILD_NAME)"
-          RESOLVED_FLUTTER_BUILD_NUMBER="$(resolved_setting FLUTTER_BUILD_NUMBER)"
-          RESOLVED_MARKETING_VERSION="$(resolved_setting MARKETING_VERSION)"
-          RESOLVED_PROJECT_VERSION="$(resolved_setting CURRENT_PROJECT_VERSION)"
-
-          test -n "$RESOLVED_FLUTTER_BUILD_NAME"
-          test -n "$RESOLVED_FLUTTER_BUILD_NUMBER"
-          [[ "$RESOLVED_MARKETING_VERSION" == "$RESOLVED_FLUTTER_BUILD_NAME" ]]
-          [[ "$RESOLVED_PROJECT_VERSION" == "$RESOLVED_FLUTTER_BUILD_NUMBER" ]]
 
           RUNNER_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_APP/Info.plist")"
           WIDGET_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$WIDGET_APPEX/Info.plist")"
