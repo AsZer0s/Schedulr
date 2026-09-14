@@ -77,6 +77,11 @@ require(
     "AppDelegate passes the implicit engine registry to the app-owned plugin",
 )
 require(
+    "guard let registrar = registry.registrar(forPlugin: pluginKey) else { return }" in plugin
+    and "register(with: registrar)" in plugin,
+    "optional implicit-engine registrar is safely unwrapped before registration",
+)
+require(
     'static let channelName = "app.schedulr/native_dialogs"' in plugin,
     "source documents the exact Dart channel name",
 )

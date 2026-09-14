@@ -24,7 +24,8 @@ final class NativeDialogPlugin: NSObject, FlutterPlugin {
 
   /// Registration entry point for Flutter's implicit engine registry and messenger.
   static func register(with registry: FlutterPluginRegistry) {
-    register(with: registry.registrar(forPlugin: pluginKey))
+    guard let registrar = registry.registrar(forPlugin: pluginKey) else { return }
+    register(with: registrar)
   }
 
   static func register(with registrar: FlutterPluginRegistrar) {
