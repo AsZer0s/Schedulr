@@ -5,14 +5,18 @@ import 'package:schedulr/features/timetable/domain/semester_timetable.dart';
 import 'widget_snapshot.dart';
 
 class WidgetSnapshotProjector {
-  const WidgetSnapshotProjector({this.expiryGrace = const Duration(hours: 2)});
+  const WidgetSnapshotProjector({
+    this.expiryGrace = const Duration(hours: 2),
+    this.projectionDays = WidgetSnapshot.defaultProjectionDays,
+  }) : assert(projectionDays >= 2, 'projectionDays must be at least 2');
 
   final Duration expiryGrace;
+  final int projectionDays;
 
   WidgetSnapshot project(SemesterTimetable timetable, DateTime now) {
     final localNow = now.toLocal();
     final todayDate = dateOnly(localNow);
-    final days = List<WidgetDay>.generate(7, (index) {
+    final days = List<WidgetDay>.generate(projectionDays, (index) {
       final day = _calendarDate(todayDate, index);
       final week = teachingWeekForDate(timetable.semester, day);
       return WidgetDay(
@@ -26,7 +30,7 @@ class WidgetSnapshotProjector {
     final today = days[0];
     final tomorrow = days[1];
     final next = _nextCourse(today, localNow);
-    final lastDay = _calendarDate(todayDate, 6);
+    final lastDay = _calendarDate(todayDate, projectionDays - 1);
     final expiresAt = DateTime(
       lastDay.year,
       lastDay.month,

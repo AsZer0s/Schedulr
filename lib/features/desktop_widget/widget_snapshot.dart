@@ -132,10 +132,19 @@ class WidgetSnapshot {
   }) : futureDays = List.unmodifiable(futureDays);
 
   static const int currentSchemaVersion = 1;
+  static const int defaultProjectionDays = 14;
 
-  factory WidgetSnapshot.noTimetable(DateTime now) {
+  factory WidgetSnapshot.noTimetable(
+    DateTime now, {
+    int? days,
+    int? projectionDays,
+  }) {
+    final projectionLength = projectionDays ?? days ?? defaultProjectionDays;
+    if (projectionLength < 2) {
+      throw ArgumentError.value(projectionLength, 'days', 'must be at least 2');
+    }
     final localNow = now.toLocal();
-    final days = List<WidgetDay>.generate(7, (index) {
+    final projectedDays = List<WidgetDay>.generate(projectionLength, (index) {
       final date = _calendarDate(localNow, index);
       return WidgetDay(
         date: _snapshotDateString(date),
@@ -151,10 +160,10 @@ class WidgetSnapshot {
       expiresAt: localNow.add(const Duration(hours: 2)),
       timetableName: null,
       semesterName: null,
-      today: days[0],
+      today: projectedDays[0],
       next: null,
-      tomorrow: days[1],
-      futureDays: days.skip(2).toList(growable: false),
+      tomorrow: projectedDays[1],
+      futureDays: projectedDays.skip(2).toList(growable: false),
     );
   }
 

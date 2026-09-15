@@ -12,7 +12,7 @@ import 'package:schedulr/features/timetable/domain/semester_timetable.dart';
 
 void main() {
   group('WidgetSnapshotProjector', () {
-    test('projects seven days, filters parity and preserves full names', () {
+    test('projects fourteen days by default, filters parity and preserves full names', () {
       final timetable = _timetable(
         startDate: DateTime(2026, 9, 7),
         teachingWeeks: 4,
@@ -44,12 +44,27 @@ void main() {
       );
 
       expect(snapshot.state, WidgetSnapshotState.ready);
-      expect(snapshot.days, hasLength(7));
+      expect(snapshot.days, hasLength(WidgetSnapshot.defaultProjectionDays));
       expect(snapshot.today.teachingWeek, 2);
       expect(snapshot.today.courses.single.courseName, contains('完整保留'));
       expect(snapshot.days[1].courses, isEmpty);
       expect(snapshot.days[1].teachingWeek, 2);
       expect(snapshot.tomorrow.date, '2026-09-15');
+      expect(
+        snapshot.futureDays,
+        hasLength(WidgetSnapshot.defaultProjectionDays - 2),
+      );
+    });
+
+    test('supports a shorter explicit projection window', () {
+      final timetable = _timetable(
+        startDate: DateTime(2026, 9, 7),
+        teachingWeeks: 4,
+      );
+      final snapshot = const WidgetSnapshotProjector(projectionDays: 7)
+          .project(timetable, DateTime(2026, 9, 7, 8));
+
+      expect(snapshot.days, hasLength(7));
       expect(snapshot.futureDays, hasLength(5));
     });
 
@@ -161,7 +176,7 @@ void main() {
       );
       final empty = WidgetSnapshot.noTimetable(DateTime(2026, 10, 31, 23, 30));
 
-      expect(projected.days.map((day) => day.date), [
+      expect(projected.days.take(7).map((day) => day.date), [
         '2026-10-31',
         '2026-11-01',
         '2026-11-02',
@@ -170,7 +185,7 @@ void main() {
         '2026-11-05',
         '2026-11-06',
       ]);
-      expect(empty.days.map((day) => day.date), [
+      expect(empty.days.take(7).map((day) => day.date), [
         '2026-10-31',
         '2026-11-01',
         '2026-11-02',

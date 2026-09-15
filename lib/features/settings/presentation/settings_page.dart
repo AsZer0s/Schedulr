@@ -82,17 +82,9 @@ class SettingsPage extends StatelessWidget {
             subtitle: const Text('删除所有课程和学期，并重新进行首次设置。'),
             onTap: () async => onClearAllData(),
           ),
-          const _SectionHeader('正方教务导入'),
-          const ListTile(
-            leading: Icon(Icons.school_outlined),
-            title: Text('北京信息职业技术学院'),
-            subtitle: Text(
-              '已实现 BITC VPN/IAM 登录与正方 V9 课表读取，等待 Android/iOS 真机验收。',
-            ),
-          ),
           const AboutListTile(
             applicationName: '课程表',
-            applicationVersion: '1.0.0',
+            applicationVersion: '1.1.12',
             applicationLegalese: '本应用默认不长期保存教务密码。',
           ),
         ],

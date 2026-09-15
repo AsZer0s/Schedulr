@@ -144,8 +144,8 @@ for config_id, name in [
     require('CODE_SIGN_ENTITLEMENTS = SchedulrWidget/SchedulrWidget.entitlements;' in config, f"widget {name} entitlements are configured")
     require('APPLICATION_EXTENSION_API_ONLY = YES;' in config, f"widget {name} enforces extension-safe APIs")
     require('SKIP_INSTALL = YES;' in config, f"widget {name} uses SKIP_INSTALL")
-    require('CURRENT_PROJECT_VERSION = 5;' in config, f"widget {name} has a non-empty default build number")
-    require('MARKETING_VERSION = 1.1.4;' in config, f"widget {name} has a non-empty default marketing version")
+    require('CURRENT_PROJECT_VERSION = 12;' in config, f"widget {name} has a non-empty default build number")
+    require('MARKETING_VERSION = 1.1.12;' in config, f"widget {name} has a non-empty default marketing version")
     expected_base = "9740EEB21CF90195004384FC" if name == "Debug" else "7AFA3C8E1D35360C0083082E"
     require(f"baseConfigurationReference = {expected_base}" in config, f"widget {name} inherits Flutter-generated version settings")
 
@@ -214,6 +214,8 @@ require('keys: ["timeText", "time", "periodText"]' in swift, "widget parser acce
 require("case .noData" in swift and "case .corrupt" in swift and "isStale" in swift, "widget handles no-data, corrupt, and stale states")
 require("nextMidnight" in swift and "coursePoints" in swift and "$0.start, $0.end" in swift, "timeline includes midnight and every parsed course boundary")
 require('coursePoints.filter { $0 > now && $0 < nextMidnight }' in swift, "timeline bounds course transitions before midnight without suppressing close boundaries")
+require('if let expiresAt = snapshot.expiresAt, expiresAt > now' in swift and 'candidates.append(expiresAt)' in swift, "timeline includes the snapshot expiry boundary")
+require('schemaVersion == nil || schemaVersion == 1' in swift, "widget rejects unsupported snapshot schema versions")
 
 require("flutter test --concurrency=1" in workflow, "release workflow runs Flutter tests sequentially")
 require("Test Android widget parser" in workflow and ":app:testDebugUnitTest" in workflow, "release workflow runs Android native widget tests")

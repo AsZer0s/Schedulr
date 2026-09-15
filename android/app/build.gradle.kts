@@ -53,10 +53,11 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
             } else {
-                signingConfigs.getByName("debug")
+                // Unsigned/reproducible CI builds must not be mislabeled as release-signed.
+                signingConfig = null
             }
         }
     }

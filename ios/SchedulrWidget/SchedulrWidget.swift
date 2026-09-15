@@ -220,6 +220,9 @@ private enum TimelineDates {
                 .flatMap { [$0.start, $0.end] }
                 .compactMap { $0 }
             candidates.append(contentsOf: coursePoints.filter { $0 > now && $0 < nextMidnight })
+            if let expiresAt = snapshot.expiresAt, expiresAt > now {
+                candidates.append(expiresAt)
+            }
         }
 
         let sorted = candidates.sorted()
@@ -303,6 +306,10 @@ private enum SnapshotLoader {
 
         let generatedAt = date(from: value(root, keys: ["generatedAt", "updatedAt", "createdAt", "timestamp"]))
         let expiresAt = date(from: value(root, keys: ["expiresAt", "validUntil"]))
+        let schemaVersion = int(from: value(root, keys: ["schemaVersion", "version"]))
+        guard schemaVersion == nil || schemaVersion == 1 else {
+            return nil
+        }
         let state = string(from: value(root, keys: ["state"]))?.lowercased() ?? ""
         let timetableName = string(from: value(root, keys: ["timetableName"])) ?? "课表"
         let semesterName = string(from: value(root, keys: ["semesterName"])) ?? ""

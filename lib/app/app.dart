@@ -18,6 +18,7 @@ class SchedulrApp extends ConsumerStatefulWidget {
     this.routerFactory,
     this.enableDesktopWidgetSync = true,
     this.publishDesktopWidgetSnapshot,
+    this.onDesktopWidgetDiagnostics,
     this.desktopWidgetClicks,
     super.key,
   });
@@ -26,6 +27,8 @@ class SchedulrApp extends ConsumerStatefulWidget {
   final GoRouter Function(String initialLocation)? routerFactory;
   final bool enableDesktopWidgetSync;
   final Future<void> Function(DateTime now)? publishDesktopWidgetSnapshot;
+  final void Function(WidgetPublishDiagnostics diagnostics)?
+  onDesktopWidgetDiagnostics;
   final Stream<Uri?>? desktopWidgetClicks;
 
   @override
@@ -86,21 +89,62 @@ class _SchedulrAppState extends ConsumerState<SchedulrApp> {
     if (!widget.enableDesktopWidgetSync) return;
     _widgetPublishDebounce?.cancel();
     _widgetPublishDebounce = Timer(const Duration(milliseconds: 200), () async {
+      await _publishDesktopWidgetWithRetry();
+    });
+  }
+
+  Future<void> _publishDesktopWidgetWithRetry() async {
+    const maxAttempts = 2;
+    Object? lastError;
+    StackTrace? lastStackTrace;
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         final now = ref.read(clockProvider)();
         final callback = widget.publishDesktopWidgetSnapshot;
         if (callback != null) {
           await callback(now);
+          widget.onDesktopWidgetDiagnostics?.call(
+            WidgetPublishDiagnostics(
+              stage: WidgetPublishStage.completed,
+              attempt: attempt,
+              occurredAt: DateTime.now().toUtc(),
+            ),
+          );
         } else {
           await WidgetSnapshotCoordinator(
             repository: ref.read(timetableRepositoryProvider),
             bridge: ref.read(widgetStorageBridgeProvider),
-          ).publishCurrent(now);
+            onDiagnostics: widget.onDesktopWidgetDiagnostics,
+          ).publishCurrent(now, attempt: attempt);
         }
-      } on Object {
-        // A launcher widget bridge must never block or crash the main app.
+        return;
+      } on Object catch (error, stackTrace) {
+        lastError = error;
+        lastStackTrace = stackTrace;
+        if (widget.publishDesktopWidgetSnapshot != null) {
+          widget.onDesktopWidgetDiagnostics?.call(
+            WidgetPublishDiagnostics(
+              stage: WidgetPublishStage.failed,
+              attempt: attempt,
+              occurredAt: DateTime.now().toUtc(),
+              errorCode: 'callback-failure',
+              retryable: true,
+            ),
+          );
+        }
+        if (attempt < maxAttempts) {
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
       }
-    });
+    }
+    FlutterError.reportError(
+      FlutterErrorDetails(
+        exception: lastError!,
+        stack: lastStackTrace,
+        library: 'Schedulr desktop widget',
+        context: ErrorDescription('while publishing a desktop widget snapshot'),
+      ),
+    );
   }
 
   @override

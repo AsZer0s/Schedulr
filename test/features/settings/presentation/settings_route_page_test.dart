@@ -71,6 +71,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+
+    expect(find.text('正方教务导入'), findsNothing);
+    expect(find.text('北京信息职业技术学院'), findsNothing);
     await tester.tap(find.text('删除全部本地数据'));
     await tester.pumpAndSettle();
 

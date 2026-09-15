@@ -18,26 +18,45 @@ import es.antonborri.home_widget.HomeWidgetLaunchIntent
 import es.antonborri.home_widget.HomeWidgetPlugin
 
 class SchedulrWidgetReceiver : AppWidgetProvider() {
+    override fun onEnabled(context: Context) {
+        super.onEnabled(context)
+        val manager = AppWidgetManager.getInstance(context)
+        val widgetIds = manager.getAppWidgetIds(ComponentName(context, javaClass))
+        // onEnabled can race with the launcher's first onUpdate. If the launcher has
+        // already registered the id, render it here so the first add is immediately
+        // backed by a local snapshot and a re-armed alarm.
+        if (widgetIds.isNotEmpty()) {
+            renderAll(context, manager, widgetIds)
+        }
+    }
+
     override fun onUpdate(
         context: Context,
         appWidgetManager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
+        super.onUpdate(context, appWidgetManager, appWidgetIds)
         renderAll(context, appWidgetManager, appWidgetIds)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == ACTION_REFRESH) {
-            val manager = AppWidgetManager.getInstance(context)
-            val widgetIds = manager.getAppWidgetIds(ComponentName(context, SchedulrWidgetReceiver::class.java))
-            if (widgetIds.isEmpty()) {
-                cancelRefresh(context)
-            } else {
-                renderAll(context, manager, widgetIds)
-            }
+        if (WidgetLifecyclePolicy.shouldRefreshAll(intent.action)) {
+            refreshAll(context)
             return
         }
+        // In particular, leave ACTION_APPWIDGET_UPDATE to AppWidgetProvider so
+        // the framework dispatches it to onUpdate with the supplied widget ids.
         super.onReceive(context, intent)
+    }
+
+    private fun refreshAll(context: Context) {
+        val manager = AppWidgetManager.getInstance(context)
+        val widgetIds = manager.getAppWidgetIds(ComponentName(context, javaClass))
+        if (widgetIds.isEmpty()) {
+            cancelRefresh(context)
+        } else {
+            renderAll(context, manager, widgetIds)
+        }
     }
 
     override fun onAppWidgetOptionsChanged(
@@ -47,8 +66,15 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
         newOptions: Bundle,
     ) {
         super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
-        val snapshot = render(context, appWidgetManager, appWidgetId, newOptions)
-        scheduleRefresh(context, WidgetSnapshotParser.nextRefreshMillis(snapshot))
+        // Resizing one instance must not replace a nearer alarm calculated for
+        // another instance. Re-rendering all instances also recomputes the
+        // global earliest refresh boundary.
+        val widgetIds = appWidgetManager.getAppWidgetIds(ComponentName(context, javaClass))
+        if (widgetIds.isNotEmpty()) {
+            renderAll(context, appWidgetManager, widgetIds, mapOf(appWidgetId to newOptions))
+        } else {
+            cancelRefresh(context)
+        }
     }
 
     override fun onDisabled(context: Context) {
@@ -60,10 +86,11 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
         context: Context,
         manager: AppWidgetManager,
         widgetIds: IntArray,
+        optionsByWidgetId: Map<Int, Bundle> = emptyMap(),
     ) {
         var refreshAt: Long? = null
         widgetIds.forEach { widgetId ->
-            val snapshot = render(context, manager, widgetId, null)
+            val snapshot = render(context, manager, widgetId, optionsByWidgetId[widgetId])
             val candidate = WidgetSnapshotParser.nextRefreshMillis(snapshot)
             refreshAt = refreshAt?.let { minOf(it, candidate) } ?: candidate
         }
@@ -201,7 +228,7 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
 
     companion object {
         const val SNAPSHOT_KEY = "schedulr.widget.snapshot.v1"
-        internal const val ACTION_REFRESH = "app.schedulr.schedulr.widget.REFRESH"
+        internal const val ACTION_REFRESH = WidgetLifecyclePolicy.ACTION_REFRESH
         private const val REFRESH_REQUEST_CODE = 1042
 
         private fun refreshPendingIntent(context: Context): PendingIntent = PendingIntent.getBroadcast(

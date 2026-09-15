@@ -15,6 +15,52 @@ abstract interface class WidgetStorageBridge {
   Future<void> clearSnapshot();
 }
 
+enum WidgetPublishStage {
+  idle,
+  loadingTimetable,
+  projectingSnapshot,
+  configuringStorage,
+  savingSnapshot,
+  updatingWidget,
+  clearingSnapshot,
+  completed,
+  failed,
+}
+
+/// Safe, user-facing publishing state. It deliberately contains no identity,
+/// authentication, or platform payload values.
+class WidgetPublishDiagnostics {
+  const WidgetPublishDiagnostics({
+    required this.stage,
+    required this.attempt,
+    required this.occurredAt,
+    this.errorCode,
+    this.retryable = false,
+  });
+
+  const WidgetPublishDiagnostics.idle()
+    : stage = WidgetPublishStage.idle,
+      attempt = 0,
+      occurredAt = null,
+      errorCode = null,
+      retryable = false;
+
+  final WidgetPublishStage stage;
+  final int attempt;
+  final DateTime? occurredAt;
+  final String? errorCode;
+  final bool retryable;
+
+  bool get isTerminal =>
+      stage == WidgetPublishStage.completed ||
+      stage == WidgetPublishStage.failed;
+
+  @override
+  String toString() =>
+      'WidgetPublishDiagnostics(stage: $stage, attempt: $attempt, '
+      'errorCode: $errorCode, retryable: $retryable)';
+}
+
 class HomeWidgetStorageBridge implements WidgetStorageBridge {
   const HomeWidgetStorageBridge();
 
@@ -50,20 +96,109 @@ class HomeWidgetStorageBridge implements WidgetStorageBridge {
 }
 
 class WidgetSnapshotPublisher {
-  const WidgetSnapshotPublisher(this.bridge);
+  const WidgetSnapshotPublisher(this.bridge, {this.onDiagnostics});
 
   final WidgetStorageBridge bridge;
+  final void Function(WidgetPublishDiagnostics diagnostics)? onDiagnostics;
 
-  Future<void> publish(WidgetSnapshot snapshot) async {
-    await bridge.setAppGroupId(HomeWidgetStorageBridge.appGroupId);
-    await bridge.saveSnapshot(snapshot.toJson());
-    await bridge.updateWidget();
+  Future<void> publish(WidgetSnapshot snapshot, {int attempt = 1}) async {
+    _report(
+      WidgetPublishDiagnostics(
+        stage: WidgetPublishStage.configuringStorage,
+        attempt: attempt,
+        occurredAt: DateTime.now().toUtc(),
+      ),
+    );
+    try {
+      await bridge.setAppGroupId(HomeWidgetStorageBridge.appGroupId);
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.savingSnapshot,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+      await bridge.saveSnapshot(snapshot.toJson());
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.updatingWidget,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+      await bridge.updateWidget();
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.completed,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+    } on Object catch (error) {
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.failed,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+          errorCode: _errorCode(error),
+          retryable: _isRetryable(error),
+        ),
+      );
+      rethrow;
+    }
   }
 
-  Future<void> clear() async {
-    await bridge.setAppGroupId(HomeWidgetStorageBridge.appGroupId);
-    await bridge.clearSnapshot();
+  Future<void> clear({int attempt = 1}) async {
+    _report(
+      WidgetPublishDiagnostics(
+        stage: WidgetPublishStage.configuringStorage,
+        attempt: attempt,
+        occurredAt: DateTime.now().toUtc(),
+      ),
+    );
+    try {
+      await bridge.setAppGroupId(HomeWidgetStorageBridge.appGroupId);
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.clearingSnapshot,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+      await bridge.clearSnapshot();
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.completed,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+    } on Object catch (error) {
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.failed,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+          errorCode: _errorCode(error),
+          retryable: _isRetryable(error),
+        ),
+      );
+      rethrow;
+    }
   }
+
+  void _report(WidgetPublishDiagnostics diagnostics) {
+    onDiagnostics?.call(diagnostics);
+  }
+
+  String _errorCode(Object error) {
+    if (error is FormatException) return 'invalid-snapshot';
+    if (error is ArgumentError) return 'invalid-configuration';
+    return 'platform-bridge-failure';
+  }
+
+  bool _isRetryable(Object error) =>
+      error is! FormatException && error is! ArgumentError;
 }
 
 class WidgetSnapshotCoordinator {
@@ -71,29 +206,82 @@ class WidgetSnapshotCoordinator {
     required this.repository,
     required this.bridge,
     this.projector = const WidgetSnapshotProjector(),
+    this.onDiagnostics,
+    this.noTimetableProjectionDays = WidgetSnapshot.defaultProjectionDays,
   });
 
   final TimetableRepository repository;
   final WidgetStorageBridge bridge;
   final WidgetSnapshotProjector projector;
+  final void Function(WidgetPublishDiagnostics diagnostics)? onDiagnostics;
+  final int noTimetableProjectionDays;
 
-  Future<WidgetSnapshot> publishCurrent(DateTime now) async {
-    final semesters = await repository.getSemesters();
-    Semester? semester;
-    for (final candidate in semesters) {
-      if (candidate.isCurrent) {
-        semester = candidate;
-        break;
+  Future<WidgetSnapshot> publishCurrent(DateTime now, {int attempt = 1}) async {
+    _report(
+      WidgetPublishDiagnostics(
+        stage: WidgetPublishStage.loadingTimetable,
+        attempt: attempt,
+        occurredAt: DateTime.now().toUtc(),
+      ),
+    );
+    var publisherStarted = false;
+    try {
+      final semesters = await repository.getSemesters();
+      Semester? semester;
+      for (final candidate in semesters) {
+        if (candidate.isCurrent) {
+          semester = candidate;
+          break;
+        }
       }
+      semester ??= semesters.isEmpty ? null : semesters.first;
+      final timetable = semester == null
+          ? null
+          : await repository.getSemesterTimetable(semester.id);
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.projectingSnapshot,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+      final snapshot = timetable == null
+          ? WidgetSnapshot.noTimetable(
+              now,
+              projectionDays: noTimetableProjectionDays,
+            )
+          : projector.project(timetable, now);
+      publisherStarted = true;
+      await WidgetSnapshotPublisher(
+        bridge,
+        onDiagnostics: onDiagnostics,
+      ).publish(snapshot, attempt: attempt);
+      return snapshot;
+    } on Object catch (error) {
+      if (!publisherStarted) {
+        _report(
+          WidgetPublishDiagnostics(
+            stage: WidgetPublishStage.failed,
+            attempt: attempt,
+            occurredAt: DateTime.now().toUtc(),
+            errorCode: _errorCode(error),
+            retryable: _isRetryable(error),
+          ),
+        );
+      }
+      rethrow;
     }
-    semester ??= semesters.isEmpty ? null : semesters.first;
-    final timetable = semester == null
-        ? null
-        : await repository.getSemesterTimetable(semester.id);
-    final snapshot = timetable == null
-        ? WidgetSnapshot.noTimetable(now)
-        : projector.project(timetable, now);
-    await WidgetSnapshotPublisher(bridge).publish(snapshot);
-    return snapshot;
   }
+
+  void _report(WidgetPublishDiagnostics diagnostics) =>
+      onDiagnostics?.call(diagnostics);
+
+  String _errorCode(Object error) {
+    if (error is FormatException) return 'invalid-snapshot';
+    if (error is ArgumentError) return 'invalid-configuration';
+    return 'timetable-load-failure';
+  }
+
+  bool _isRetryable(Object error) =>
+      error is! FormatException && error is! ArgumentError;
 }

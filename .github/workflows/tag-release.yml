@@ -73,16 +73,43 @@ jobs:
       - name: Build release APK
         run: flutter build apk --release --build-number "$GITHUB_RUN_NUMBER"
 
+      - name: Verify APK metadata and signature mode
+        run: |
+          set -euo pipefail
+          APK="build/app/outputs/flutter-apk/app-release.apk"
+          test -s "$APK"
+          if command -v apkanalyzer >/dev/null 2>&1; then
+            PACKAGE_INFO="$(apkanalyzer manifest application-id "$APK")"
+            VERSION_NAME="$(apkanalyzer manifest version-name "$APK")"
+            VERSION_CODE="$(apkanalyzer manifest version-code "$APK")"
+            [[ "$PACKAGE_INFO" == "app.schedulr.schedulr" ]]
+            [[ "$VERSION_NAME" == "${GITHUB_REF_NAME#v}" || "$VERSION_NAME" == "${GITHUB_REF_NAME#v}"* ]]
+            [[ "$VERSION_CODE" =~ ^[0-9]+$ ]]
+            printf 'APK metadata: package=%s versionName=%s versionCode=%s\n' "$PACKAGE_INFO" "$VERSION_NAME" "$VERSION_CODE"
+          fi
+          if [[ -n "${ANDROID_KEYSTORE_PATH:-}" ]]; then
+            echo 'ANDROID_ARTIFACT_SIGNING=release' >> "$GITHUB_ENV"
+          else
+            echo 'ANDROID_ARTIFACT_SIGNING=unsigned' >> "$GITHUB_ENV"
+          fi
+          printf 'Android artifact signing mode: %s\n' "${ANDROID_ARTIFACT_SIGNING:-unknown}"
+
       - name: Rename APK
         run: |
+          set -euo pipefail
           SAFE_TAG="${GITHUB_REF_NAME//\//-}"
-          cp build/app/outputs/flutter-apk/app-release.apk "Schedulr-${SAFE_TAG}-android.apk"
+          if [[ "${ANDROID_ARTIFACT_SIGNING:-unsigned}" == "release" ]]; then
+            SUFFIX="android.apk"
+          else
+            SUFFIX="android-unsigned.apk"
+          fi
+          cp build/app/outputs/flutter-apk/app-release.apk "Schedulr-${SAFE_TAG}-${SUFFIX}"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: android-apk
-          path: Schedulr-*-android.apk
+          path: Schedulr-*-android*.apk
           if-no-files-found: error
 
   ios:
@@ -230,4 +257,5 @@ jobs:
           generate_release_notes: true
           files: dist/*
           body: |
-            Android APK 可直接安装。iOS IPA 未签名；包内含 SchedulrWidget.appex，需要为主应用和扩展分别配置含共享 App Group 的描述文件，先签名扩展再签名主应用。
+            Android APK：只有配置正式 keystore 时才是正式签名产物；未配置时文件名会标记为 `android-unsigned.apk`，需要安装前自行签名。
+            iOS IPA 未签名；包内含 SchedulrWidget.appex，需要由同一 Apple Developer Team 为主应用和扩展分别配置含共享 App Group 的描述文件，先签名扩展再签名主应用。
