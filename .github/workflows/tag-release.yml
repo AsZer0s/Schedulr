@@ -55,7 +55,20 @@ jobs:
         run: flutter analyze
 
       - name: Test
-        run: flutter test --concurrency=1
+        run: |
+          set -o pipefail
+          flutter test --no-pub --concurrency=1 -r expanded 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
+
+      - name: Upload Flutter test log
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-flutter-test-log
+          path: ${{ runner.temp }}/flutter-test.log
+          if-no-files-found: ignore
+
+      - name: Test Android widget parser
+        run: ./android/gradlew -p android :app:testDebugUnitTest --tests 'app.schedulr.schedulr.widget.*'
 
       - name: Build release APK
         run: flutter build apk --release --build-number "$GITHUB_RUN_NUMBER"
@@ -96,12 +109,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
-      - name: Build unsigned iOS app
+      - name: Generate Flutter iOS build configuration
         run: >-
-          flutter build ios --release --no-codesign
+          flutter build ios --release --config-only
           --build-number "$GITHUB_RUN_NUMBER"
 
-      - name: Assemble and verify complete unsigned iOS app
+      - name: Assemble unsigned iOS app
         run: |
           set -euo pipefail
           PACKAGE_DIR="$PWD/build/ios/package"
@@ -111,7 +124,7 @@ jobs:
           mkdir -p "$PACKAGE_DIR"
 
           xcodebuild \
-            -project ios/Runner.xcodeproj \
+            -workspace ios/Runner.xcworkspace \
             -scheme Runner \
             -configuration Release \
             -sdk iphoneos \
@@ -119,6 +132,9 @@ jobs:
             CONFIGURATION_BUILD_DIR="$PACKAGE_DIR" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
             build
 
           test -d "$RUNNER_APP"
