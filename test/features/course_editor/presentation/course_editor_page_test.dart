@@ -53,6 +53,68 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  testWidgets('iOS 新建课程点击返回只调用一次关闭回调', (tester) async {
+    var backCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.iOS),
+        home: CourseEditorPage(
+          semester: semester,
+          onSave: (_) async {},
+          onBack: () => backCount++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final backButton = tester.widget<CupertinoNavigationBarBackButton>(
+      find.byKey(const Key('course-editor-back')),
+    );
+    backButton.onPressed!();
+    await tester.pumpAndSettle();
+
+    expect(backCount, 1);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('iOS 新建课程有未保存修改时返回可取消或确认', (tester) async {
+    var backCount = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData(platform: TargetPlatform.iOS),
+        home: CourseEditorPage(
+          semester: semester,
+          onSave: (_) async {},
+          onBack: () => backCount++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('course-name-field')), '待确认课程');
+
+    final backButton = tester.widget<CupertinoNavigationBarBackButton>(
+      find.byKey(const Key('course-editor-back')),
+    );
+    backButton.onPressed!();
+    await tester.pumpAndSettle();
+    expect(find.text('放弃未保存的修改？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(backCount, 0);
+    expect(find.byKey(const Key('course-name-field')), findsOneWidget);
+
+    final cancelBack = tester.widget<CupertinoNavigationBarBackButton>(
+      find.byKey(const Key('course-editor-back')),
+    );
+    cancelBack.onPressed!();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('放弃修改'));
+    await tester.pump();
+    await tester.pump();
+    expect(backCount, 1);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('iOS picker 选择星期和节次后可保存', (tester) async {
     CourseWithSessions? saved;
     final periods = [

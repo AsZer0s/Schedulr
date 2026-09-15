@@ -45,14 +45,15 @@ class CourseEditorRoutePage extends ConsumerWidget {
                       acceptedConflictKeys: acceptedConflictKeys,
                     );
                 if (result is CourseSaved && context.mounted) {
-                  context.pop();
+                  _closeEditor(context);
                 }
                 return result;
               },
           onSave: (course) async {
             await ref.read(timetableRepositoryProvider).upsertCourse(course);
-            if (context.mounted) context.pop();
+            if (context.mounted) _closeEditor(context);
           },
+          onBack: () => _closeEditor(context),
           onDelete: initialCourse == null
               ? null
               : () async {
@@ -64,6 +65,15 @@ class CourseEditorRoutePage extends ConsumerWidget {
         );
       },
     );
+  }
+}
+
+void _closeEditor(BuildContext context) {
+  final router = GoRouter.of(context);
+  if (router.canPop()) {
+    router.pop();
+  } else {
+    router.go('/');
   }
 }
 

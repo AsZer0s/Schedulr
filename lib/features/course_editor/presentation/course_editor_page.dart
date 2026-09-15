@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../core/platform/adaptive_ui.dart';
@@ -15,6 +16,7 @@ class CourseEditorPage extends StatefulWidget {
     this.initialCourse,
     this.saveWithConflictCheck,
     this.onDelete,
+    this.onBack,
     super.key,
   });
 
@@ -28,6 +30,7 @@ class CourseEditorPage extends StatefulWidget {
   })?
   saveWithConflictCheck;
   final Future<void> Function()? onDelete;
+  final VoidCallback? onBack;
 
   bool get isEditing => initialCourse != null;
 
@@ -59,6 +62,9 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
   bool _allowPop = false;
   bool _isSaving = false;
   bool _isDeleting = false;
+  bool _backRequestInProgress = false;
+  bool _isClosing = false;
+  bool _trackUserChanges = false;
 
   @override
   void initState() {
@@ -80,6 +86,11 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     for (final session in _sessions) {
       session.addListener(_markDirty);
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _trackUserChanges = true;
+      });
+    });
   }
 
   @override
@@ -94,7 +105,7 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
   }
 
   void _markDirty() {
-    if (!_isDirty && mounted) {
+    if (_trackUserChanges && !_isDirty && mounted) {
       setState(() => _isDirty = true);
     }
   }
@@ -329,20 +340,73 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
     }
   }
 
+  void _popRoute([Object? result]) {
+    if (!mounted || _isClosing) return;
+    _isClosing = true;
+    if (widget.onBack != null) {
+      widget.onBack!();
+      return;
+    }
+    final router = GoRouter.maybeOf(context);
+    if (router != null) {
+      if (router.canPop()) {
+        router.pop(result);
+      } else {
+        router.go('/');
+      }
+      return;
+    }
+    final navigator = Navigator.maybeOf(context);
+    if (navigator?.canPop() == true) {
+      navigator!.pop(result);
+    }
+  }
+
+  Future<void> _requestBack() async {
+    if (!mounted ||
+        _isSaving ||
+        _isDeleting ||
+        _backRequestInProgress ||
+        _isClosing) {
+      return;
+    }
+    _backRequestInProgress = true;
+    try {
+      if (!_isDirty) {
+        if (widget.onBack != null) {
+          _isClosing = true;
+          widget.onBack!();
+        } else {
+          _popRoute();
+        }
+        return;
+      }
+      final discard = await showAdaptiveConfirmationDialog(
+        context,
+        title: '放弃未保存的修改？',
+        message: '当前修改尚未保存，返回后将丢失。',
+        confirmLabel: '放弃修改',
+        destructive: true,
+      );
+      if (!discard || !mounted) return;
+      _allowPop = true;
+      if (widget.onBack != null) {
+        _isClosing = true;
+        widget.onBack!();
+        return;
+      }
+      if (mounted) setState(() {});
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _popRoute();
+      });
+    } finally {
+      _backRequestInProgress = false;
+    }
+  }
+
   Future<void> _handlePopAttempt(bool didPop, Object? result) async {
     if (didPop || _allowPop || !_isDirty) return;
-    final discard = await showAdaptiveConfirmationDialog(
-      context,
-      title: '放弃未保存的修改？',
-      message: '当前修改尚未保存，返回后将丢失。',
-      confirmLabel: '放弃修改',
-      destructive: true,
-    );
-    if (!discard || !mounted) return;
-    setState(() => _allowPop = true);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) Navigator.of(context).pop(result);
-    });
+    await _requestBack();
   }
 
   @override
@@ -481,6 +545,10 @@ class _CourseEditorPageState extends State<CourseEditorPage> {
         ? CupertinoPageScaffold(
             navigationBar: CupertinoNavigationBar(
               middle: Text(widget.isEditing ? '编辑课程' : '新建课程'),
+              leading: CupertinoNavigationBarBackButton(
+                key: const Key('course-editor-back'),
+                onPressed: _requestBack,
+              ),
               trailing: CupertinoButton(
                 key: const Key('course-editor-save'),
                 padding: EdgeInsets.zero,
