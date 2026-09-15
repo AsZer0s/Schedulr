@@ -144,8 +144,8 @@ for config_id, name in [
     require('CODE_SIGN_ENTITLEMENTS = SchedulrWidget/SchedulrWidget.entitlements;' in config, f"widget {name} entitlements are configured")
     require('APPLICATION_EXTENSION_API_ONLY = YES;' in config, f"widget {name} enforces extension-safe APIs")
     require('SKIP_INSTALL = YES;' in config, f"widget {name} uses SKIP_INSTALL")
-    require('CURRENT_PROJECT_VERSION = 4;' in config, f"widget {name} has a non-empty default build number")
-    require('MARKETING_VERSION = 1.1.3;' in config, f"widget {name} has a non-empty default marketing version")
+    require('CURRENT_PROJECT_VERSION = 5;' in config, f"widget {name} has a non-empty default build number")
+    require('MARKETING_VERSION = 1.1.4;' in config, f"widget {name} has a non-empty default marketing version")
     expected_base = "9740EEB21CF90195004384FC" if name == "Debug" else "7AFA3C8E1D35360C0083082E"
     require(f"baseConfigurationReference = {expected_base}" in config, f"widget {name} inherits Flutter-generated version settings")
 
@@ -223,8 +223,11 @@ require("Embed Widget extension and verify versions" in workflow, "release workf
 require("-target SchedulrWidget" in workflow and "CODE_SIGNING_ALLOWED=NO" in workflow, "release workflow can build the unsigned Widget extension explicitly")
 require('mkdir -p "$RUNNER_APP/PlugIns"' in workflow and 'cp -R "$WIDGET_PRODUCT" "$WIDGET_APPEX"' in workflow, "release workflow copies a missing Widget extension into Runner.app")
 require("set_or_add_plist_string" in workflow and "Add :$key string $value" in workflow, "release workflow creates missing Widget version keys")
-require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersionString "$RUNNER_SHORT_VERSION"' in workflow, "release workflow copies the Runner short version into the Widget")
-require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$RUNNER_BUILD_VERSION"' in workflow, "release workflow copies the Runner build version into the Widget")
+require("EXPECTED_SHORT_VERSION=\"${APP_VERSION%%+*}\"" in workflow and 'EXPECTED_BUILD_VERSION="$GITHUB_RUN_NUMBER"' in workflow, "release workflow derives authoritative versions from pubspec and the Actions run")
+require('set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"' in workflow, "release workflow creates the Runner short-version key when missing")
+require('set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"' in workflow, "release workflow creates the Runner build-version key when missing")
+require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"' in workflow, "release workflow creates the Widget short-version key when missing")
+require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"' in workflow, "release workflow creates the Widget build-version key when missing")
 require('[[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]' in workflow, "release workflow compares Runner and widget short versions")
 require('[[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]' in workflow, "release workflow compares Runner and widget build versions")
 

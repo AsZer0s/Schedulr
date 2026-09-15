@@ -131,10 +131,11 @@ jobs:
           test -d "$WIDGET_APPEX"
           find "$RUNNER_APP/PlugIns" -maxdepth 1 -name '*.appex' -print
 
-          RUNNER_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_APP/Info.plist")"
-          RUNNER_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_APP/Info.plist")"
-          test -n "$RUNNER_SHORT_VERSION"
-          test -n "$RUNNER_BUILD_VERSION"
+          APP_VERSION="$(grep -m1 '^version:' pubspec.yaml | cut -d' ' -f2 | tr -d '[:space:]')"
+          EXPECTED_SHORT_VERSION="${APP_VERSION%%+*}"
+          EXPECTED_BUILD_VERSION="$GITHUB_RUN_NUMBER"
+          test -n "$EXPECTED_SHORT_VERSION"
+          test -n "$EXPECTED_BUILD_VERSION"
 
           set_or_add_plist_string() {
             local plist="$1"
@@ -143,12 +144,18 @@ jobs:
             /usr/libexec/PlistBuddy -c "Set :$key $value" "$plist" 2>/dev/null || \
               /usr/libexec/PlistBuddy -c "Add :$key string $value" "$plist"
           }
-          set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersionString "$RUNNER_SHORT_VERSION"
-          set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$RUNNER_BUILD_VERSION"
+          set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"
+          set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"
+          set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"
+          set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"
 
+          RUNNER_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_APP/Info.plist")"
+          RUNNER_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_APP/Info.plist")"
           WIDGET_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$WIDGET_APPEX/Info.plist")"
           WIDGET_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$WIDGET_APPEX/Info.plist")"
 
+          [[ "$RUNNER_SHORT_VERSION" == "$EXPECTED_SHORT_VERSION" ]]
+          [[ "$RUNNER_BUILD_VERSION" == "$EXPECTED_BUILD_VERSION" ]]
           [[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]
           [[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]
           printf 'Runner/Widget version verified: %s (%s)\n' "$RUNNER_SHORT_VERSION" "$RUNNER_BUILD_VERSION"
