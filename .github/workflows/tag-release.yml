@@ -57,7 +57,7 @@ jobs:
       - name: Test
         run: |
           set -o pipefail
-          flutter test --no-pub --concurrency=1 -r expanded 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
+          flutter test --concurrency=1 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
 
       - name: Upload Flutter test log
         if: ${{ always() }}
@@ -111,7 +111,7 @@ jobs:
 
       - name: Generate Flutter iOS build configuration
         run: >-
-          flutter build ios --release --config-only
+          flutter build ios --release --config-only --no-codesign
           --build-number "$GITHUB_RUN_NUMBER"
 
       - name: Assemble unsigned iOS app
