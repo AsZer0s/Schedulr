@@ -215,7 +215,7 @@ require("case .noData" in swift and "case .corrupt" in swift and "isStale" in sw
 require("nextMidnight" in swift and "coursePoints" in swift and "$0.start, $0.end" in swift, "timeline includes midnight and every parsed course boundary")
 require('coursePoints.filter { $0 > now && $0 < nextMidnight }' in swift, "timeline bounds course transitions before midnight without suppressing close boundaries")
 
-require("flutter test --concurrency=1" in workflow, "release workflow runs Flutter tests sequentially")
+require("flutter test --concurrency=1" in workflow and "--no-test-assets" in workflow and "--reporter expanded" in workflow, "release workflow runs lightweight diagnostic Flutter tests sequentially")
 require("Test Android widget parser" in workflow and ":app:testDebugUnitTest" in workflow, "release workflow runs Android native widget tests")
 require("Upload Flutter test log" in workflow and 'flutter-test.log' in workflow, "release workflow preserves a diagnostic Flutter test log")
 require("Verify iOS native integrations" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")
@@ -223,7 +223,7 @@ require('WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"' in workflow, "
 require("CFBundleShortVersionString" in workflow and "CFBundleVersion" in workflow, "release workflow reads both app and widget version fields")
 require("flutter build ios --release --config-only --no-codesign" in workflow, "release workflow generates Flutter iOS configuration without signing")
 require('CODE_SIGN_IDENTITY=""' in workflow and 'DEVELOPMENT_TEAM=""' in workflow and 'PROVISIONING_PROFILE_SPECIFIER=""' in workflow, "release workflow clears Xcode signing identity, team, and profile")
-require("-workspace ios/Runner.xcworkspace" in workflow, "release workflow builds the CocoaPods workspace")
+require('PACKAGE_ROOT="$PWD/build/ios/iphoneos"' in workflow and 'FLUTTER_BUILD_DIR="$PWD/build"' in workflow, "release workflow uses Flutter's standard iOS output directory")
 require('test -s "$RUNNER_APP/Frameworks/Flutter.framework/Flutter"' in workflow and 'flutter_assets' in workflow, "release workflow verifies Flutter frameworks and assets")
 require('UNCOMPRESSED_KB' in workflow and 'test "$UNCOMPRESSED_KB" -gt 10000' in workflow, "release workflow rejects undersized iOS app bundles")
 require("Package unsigned IPA" in workflow and "ditto -c -k" in workflow, "release workflow packages the complete app with ditto")

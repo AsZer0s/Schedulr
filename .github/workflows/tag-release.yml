@@ -57,7 +57,7 @@ jobs:
       - name: Test
         run: |
           set -o pipefail
-          flutter test --concurrency=1 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
+          flutter test --concurrency=1 --no-test-assets --reporter expanded 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
 
       - name: Upload Flutter test log
         if: ${{ always() }}
@@ -117,11 +117,10 @@ jobs:
       - name: Assemble unsigned iOS app
         run: |
           set -euo pipefail
-          PACKAGE_DIR="$PWD/build/ios/package"
-          RUNNER_APP="$PACKAGE_DIR/Runner.app"
+          PACKAGE_ROOT="$PWD/build/ios/iphoneos"
+          RUNNER_APP="$PACKAGE_ROOT/Runner.app"
           WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"
-          rm -rf "$PACKAGE_DIR"
-          mkdir -p "$PACKAGE_DIR"
+          rm -rf "$PACKAGE_ROOT"
 
           xcodebuild \
             -workspace ios/Runner.xcworkspace \
@@ -135,6 +134,7 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             DEVELOPMENT_TEAM="" \
             PROVISIONING_PROFILE_SPECIFIER="" \
+            FLUTTER_BUILD_DIR="$PWD/build" \
             build
 
           test -d "$RUNNER_APP"
@@ -193,7 +193,7 @@ jobs:
           IPA="Schedulr-${SAFE_TAG}-ios-unsigned.ipa"
           rm -rf Payload "$IPA"
           mkdir -p Payload
-          ditto build/ios/package/Runner.app Payload/Runner.app
+          ditto build/ios/iphoneos/Runner.app Payload/Runner.app
           ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
           unzip -tq "$IPA"
           unzip -l "$IPA" | grep -q 'Payload/Runner.app/Runner'
