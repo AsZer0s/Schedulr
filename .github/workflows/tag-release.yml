@@ -60,7 +60,7 @@ jobs:
           flutter test --concurrency=1 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
 
       - name: Upload Flutter test log
-        if: ${{ always() }}
+        if: ${{ failure() }}
         uses: actions/upload-artifact@v4
         with:
           name: android-flutter-test-log
