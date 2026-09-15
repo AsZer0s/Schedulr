@@ -8,6 +8,7 @@ class SettingsPage extends StatelessWidget {
     required this.onClearSession,
     required this.onDeleteSavedAccounts,
     required this.onClearAllData,
+    required this.onRefreshWidget,
     required this.savedAccountCount,
     super.key,
   });
@@ -16,6 +17,7 @@ class SettingsPage extends StatelessWidget {
   final Future<void> Function() onClearSession;
   final Future<void> Function() onDeleteSavedAccounts;
   final Future<void> Function() onClearAllData;
+  final Future<void> Function() onRefreshWidget;
   final int savedAccountCount;
 
   @override
@@ -71,6 +73,25 @@ class SettingsPage extends StatelessWidget {
                   },
           ),
           ListTile(
+            key: const ValueKey('refresh-desktop-widget'),
+            leading: const Icon(Icons.widgets_outlined),
+            title: const Text('刷新桌面小组件'),
+            subtitle: const Text('重新写入当前课表快照并通知系统刷新。'),
+            onTap: () async {
+              try {
+                await onRefreshWidget();
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('桌面小组件已刷新。')));
+              } on Object {
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('小组件同步失败，请检查安装包签名或稍后重试。')),
+                );
+              }
+            },
+          ),
+          ListTile(
             leading: Icon(
               Icons.delete_forever_outlined,
               color: theme.colorScheme.error,
@@ -84,7 +105,7 @@ class SettingsPage extends StatelessWidget {
           ),
           const AboutListTile(
             applicationName: '课程表',
-            applicationVersion: '1.1.12',
+            applicationVersion: '1.1.13',
             applicationLegalese: '本应用默认不长期保存教务密码。',
           ),
         ],

@@ -22,6 +22,7 @@ WIDGET_INFO = WIDGET_DIR / "Info.plist"
 WIDGET_ENTITLEMENTS = WIDGET_DIR / "SchedulrWidget.entitlements"
 FLUTTER_DEBUG_XCCONFIG = IOS / "Flutter" / "Debug.xcconfig"
 FLUTTER_RELEASE_XCCONFIG = IOS / "Flutter" / "Release.xcconfig"
+SIGNED_IPA_VERIFIER = ROOT / "scripts" / "verify_signed_ios_widget_ipa.py"
 
 APP_GROUP = "group.app.schedulr.shared"
 SNAPSHOT_KEY = "schedulr.widget.snapshot.v1"
@@ -73,7 +74,7 @@ def object_block(text: str, object_id: str) -> str:
     return ""
 
 
-for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG]:
+for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SIGNED_IPA_VERIFIER]:
     require(path.is_file(), f"{path.relative_to(ROOT)} exists")
 
 if not PBXPROJ.is_file():
@@ -144,8 +145,8 @@ for config_id, name in [
     require('CODE_SIGN_ENTITLEMENTS = SchedulrWidget/SchedulrWidget.entitlements;' in config, f"widget {name} entitlements are configured")
     require('APPLICATION_EXTENSION_API_ONLY = YES;' in config, f"widget {name} enforces extension-safe APIs")
     require('SKIP_INSTALL = YES;' in config, f"widget {name} uses SKIP_INSTALL")
-    require('CURRENT_PROJECT_VERSION = 12;' in config, f"widget {name} has a non-empty default build number")
-    require('MARKETING_VERSION = 1.1.12;' in config, f"widget {name} has a non-empty default marketing version")
+    require('CURRENT_PROJECT_VERSION = 13;' in config, f"widget {name} has a non-empty default build number")
+    require('MARKETING_VERSION = 1.1.13;' in config, f"widget {name} has a non-empty default marketing version")
     expected_base = "9740EEB21CF90195004384FC" if name == "Debug" else "7AFA3C8E1D35360C0083082E"
     require(f"baseConfigurationReference = {expected_base}" in config, f"widget {name} inherits Flutter-generated version settings")
 
@@ -238,6 +239,8 @@ require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersion
 require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"' in workflow, "release workflow creates the Widget build-version key when missing")
 require('[[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]' in workflow, "release workflow compares Runner and widget short versions")
 require('[[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]' in workflow, "release workflow compares Runner and widget build versions")
+
+require('verify_signed_ios_widget_ipa.py' in SIGNED_IPA_VERIFIER.name and 'codesign' in SIGNED_IPA_VERIFIER.read_text(), "signed IPA verifier checks codesign entitlements")
 
 if errors:
     print(f"iOS widget project verification FAILED: {len(errors)} issue(s)")

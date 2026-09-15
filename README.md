@@ -116,9 +116,9 @@ IPA 由 macOS Runner 使用 `--no-codesign` 构建。由于包内包含 `Schedul
 - 两个 App ID 都启用 App Group `group.app.schedulr.shared`。
 - 先签名嵌套的 `Runner.app/PlugIns/SchedulrWidget.appex`，再签名外层 `Runner.app`，并保持相同的版本号和构建号。
 
-只使用证书重签外层 App 不足以安装带 WidgetKit Extension 的 IPA。
+若拿到已签名 IPA，可运行 `python3 scripts/verify_signed_ios_widget_ipa.py <signed.ipa>`，它会检查主应用和 Widget Extension 的 bundle ID、Team、嵌套签名及共同 App Group。
 
-Android 默认使用 GitHub Runner 的 debug key 签署 Release APK，便于开源 fork 直接构建。若需使用正式签名，请配置以下 Actions Secrets：
+Android 默认不配置 release signing，未提供 keystore 时工作流会发布明确标记为 `android-unsigned.apk` 的待签名产物；不会再误用 debug key。若需使用正式签名，请配置以下 Actions Secrets：
 
 - `ANDROID_KEYSTORE_BASE64`：JKS/Keystore 文件的 Base64 内容
 - `ANDROID_KEYSTORE_PASSWORD`

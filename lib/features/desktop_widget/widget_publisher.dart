@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:home_widget/home_widget.dart';
 import 'package:schedulr/features/timetable/data/timetable_repository.dart';
 import 'package:schedulr/features/timetable/domain/semester.dart';
@@ -9,6 +11,8 @@ abstract interface class WidgetStorageBridge {
   Future<void> setAppGroupId(String groupId);
 
   Future<void> saveSnapshot(String value);
+
+  Future<String?> readSnapshot();
 
   Future<void> updateWidget();
 
@@ -81,6 +85,11 @@ class HomeWidgetStorageBridge implements WidgetStorageBridge {
   }
 
   @override
+  Future<String?> readSnapshot() async {
+    return HomeWidget.getWidgetData<String>(snapshotKey);
+  }
+
+  @override
   Future<void> updateWidget() async {
     await HomeWidget.updateWidget(
       qualifiedAndroidName: qualifiedAndroidWidgetName,
@@ -93,6 +102,15 @@ class HomeWidgetStorageBridge implements WidgetStorageBridge {
     await HomeWidget.saveWidgetData<String>(snapshotKey, null);
     await updateWidget();
   }
+}
+
+class WidgetStorageReadBackException implements Exception {
+  const WidgetStorageReadBackException(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => 'Widget storage read-back failed: $reason';
 }
 
 class WidgetSnapshotPublisher {
@@ -119,6 +137,8 @@ class WidgetSnapshotPublisher {
         ),
       );
       await bridge.saveSnapshot(snapshot.toJson());
+      final readBack = await bridge.readSnapshot();
+      _validateReadBack(readBack, snapshot.schemaVersion);
       _report(
         WidgetPublishDiagnostics(
           stage: WidgetPublishStage.updatingWidget,
@@ -187,11 +207,24 @@ class WidgetSnapshotPublisher {
     }
   }
 
+  void _validateReadBack(String? value, int schemaVersion) {
+    if (value == null || value.isEmpty) {
+      throw const WidgetStorageReadBackException('empty');
+    }
+    final decoded = jsonDecode(value);
+    if (decoded is! Map || decoded['schemaVersion'] != schemaVersion) {
+      throw const WidgetStorageReadBackException('schema');
+    }
+  }
+
   void _report(WidgetPublishDiagnostics diagnostics) {
     onDiagnostics?.call(diagnostics);
   }
 
   String _errorCode(Object error) {
+    if (error is WidgetStorageReadBackException) {
+      return 'shared-storage-readback-failure';
+    }
     if (error is FormatException) return 'invalid-snapshot';
     if (error is ArgumentError) return 'invalid-configuration';
     return 'platform-bridge-failure';
@@ -277,6 +310,9 @@ class WidgetSnapshotCoordinator {
       onDiagnostics?.call(diagnostics);
 
   String _errorCode(Object error) {
+    if (error is WidgetStorageReadBackException) {
+      return 'shared-storage-readback-failure';
+    }
     if (error is FormatException) return 'invalid-snapshot';
     if (error is ArgumentError) return 'invalid-configuration';
     return 'timetable-load-failure';

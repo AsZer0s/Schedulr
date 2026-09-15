@@ -128,5 +128,8 @@ class _RecordingWidgetBridge implements WidgetStorageBridge {
   }
 
   @override
+  Future<String?> readSnapshot() async => null;
+
+  @override
   Future<void> updateWidget() async => calls.add('update');
 }

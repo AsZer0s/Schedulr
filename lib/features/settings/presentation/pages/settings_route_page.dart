@@ -33,6 +33,13 @@ class SettingsRoutePage extends ConsumerWidget {
         await sessionStore.clearCurrentWebSessionAccount();
         ref.invalidate(import_providers.bitcAccountsProvider);
       },
+      onRefreshWidget: () async {
+        final now = ref.read(clockProvider)();
+        await WidgetSnapshotCoordinator(
+          repository: ref.read(timetableRepositoryProvider),
+          bridge: ref.read(widgetStorageBridgeProvider),
+        ).publishCurrent(now);
+      },
       onClearAllData: () async {
         final confirmed = await showAdaptiveConfirmationDialog(
           context,

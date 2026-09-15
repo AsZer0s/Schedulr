@@ -238,6 +238,34 @@ void main() {
 
   group('WidgetSnapshotPublisher', () {
     test(
+      'reports a shared-storage read-back failure without updating widget',
+      () async {
+        final bridge = _FakeBridge()..forceEmptyReadBack = true;
+        final diagnostics = <WidgetPublishDiagnostics>[];
+        final publisher = WidgetSnapshotPublisher(
+          bridge,
+          onDiagnostics: diagnostics.add,
+        );
+
+        await expectLater(
+          publisher.publish(WidgetSnapshot.noTimetable(DateTime(2026, 9, 7))),
+          throwsA(isA<WidgetStorageReadBackException>()),
+        );
+        expect(bridge.calls.any((call) => call.startsWith('save:')), isTrue);
+        expect(bridge.calls, isNot(contains('update')));
+        expect(diagnostics.last.errorCode, 'shared-storage-readback-failure');
+      },
+    );
+
+    test('accepts a valid read-back schema before updating widget', () async {
+      final bridge = _FakeBridge();
+      final snapshot = WidgetSnapshot.noTimetable(DateTime(2026, 9, 7));
+      await WidgetSnapshotPublisher(bridge).publish(snapshot);
+
+      expect(bridge.calls.last, 'update');
+    });
+
+    test(
       'uses shared group, snapshot key indirectly, update names and clear',
       () async {
         final bridge = _FakeBridge();
@@ -326,6 +354,9 @@ PeriodDefinition _period(int period, String start, String end) {
 }
 
 class _FakeBridge implements WidgetStorageBridge {
+  String? savedSnapshot;
+  String? readBackOverride;
+  bool forceEmptyReadBack = false;
   final calls = <String>[];
 
   @override
@@ -333,7 +364,14 @@ class _FakeBridge implements WidgetStorageBridge {
       calls.add('group:$groupId');
 
   @override
-  Future<void> saveSnapshot(String value) async => calls.add('save:$value');
+  Future<void> saveSnapshot(String value) async {
+    savedSnapshot = value;
+    calls.add('save:$value');
+  }
+
+  @override
+  Future<String?> readSnapshot() async =>
+      forceEmptyReadBack ? null : readBackOverride ?? savedSnapshot;
 
   @override
   Future<void> updateWidget() async => calls.add('update');
