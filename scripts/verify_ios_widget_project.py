@@ -215,7 +215,7 @@ require("case .noData" in swift and "case .corrupt" in swift and "isStale" in sw
 require("nextMidnight" in swift and "coursePoints" in swift and "$0.start, $0.end" in swift, "timeline includes midnight and every parsed course boundary")
 require('coursePoints.filter { $0 > now && $0 < nextMidnight }' in swift, "timeline bounds course transitions before midnight without suppressing close boundaries")
 
-require("flutter test --concurrency=1" in workflow and "--no-test-assets" in workflow and "--reporter expanded" in workflow, "release workflow runs lightweight diagnostic Flutter tests sequentially")
+require("flutter test --concurrency=1" in workflow, "release workflow runs Flutter tests sequentially")
 require("Test Android widget parser" in workflow and ":app:testDebugUnitTest" in workflow, "release workflow runs Android native widget tests")
 require("Upload Flutter test log" in workflow and 'flutter-test.log' in workflow, "release workflow preserves a diagnostic Flutter test log")
 require("Verify iOS native integrations" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")

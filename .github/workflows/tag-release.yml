@@ -57,7 +57,7 @@ jobs:
       - name: Test
         run: |
           set -o pipefail
-          flutter test --concurrency=1 --no-test-assets --reporter expanded 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
+          flutter test --concurrency=1 2>&1 | tee "$RUNNER_TEMP/flutter-test.log"
 
       - name: Upload Flutter test log
         if: ${{ always() }}
@@ -128,7 +128,7 @@ jobs:
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            CONFIGURATION_BUILD_DIR="$PACKAGE_DIR" \
+            CONFIGURATION_BUILD_DIR="$PACKAGE_ROOT" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -145,7 +145,7 @@ jobs:
           test -d "$RUNNER_APP/Frameworks/App.framework/flutter_assets"
 
           if [[ ! -d "$WIDGET_APPEX" ]]; then
-            WIDGET_PRODUCT="$PACKAGE_DIR/SchedulrWidget.appex"
+            WIDGET_PRODUCT="$PACKAGE_ROOT/SchedulrWidget.appex"
             test -d "$WIDGET_PRODUCT"
             mkdir -p "$RUNNER_APP/PlugIns"
             cp -R "$WIDGET_PRODUCT" "$WIDGET_APPEX"
