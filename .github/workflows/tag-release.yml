@@ -101,34 +101,40 @@ jobs:
           flutter build ios --release --no-codesign
           --build-number "$GITHUB_RUN_NUMBER"
 
-      - name: Embed Widget extension and verify versions
+      - name: Assemble and verify complete unsigned iOS app
         run: |
           set -euo pipefail
-          RUNNER_APP="build/ios/iphoneos/Runner.app"
+          PACKAGE_DIR="$PWD/build/ios/package"
+          RUNNER_APP="$PACKAGE_DIR/Runner.app"
           WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"
+          rm -rf "$PACKAGE_DIR"
+          mkdir -p "$PACKAGE_DIR"
+
+          xcodebuild \
+            -project ios/Runner.xcodeproj \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            CONFIGURATION_BUILD_DIR="$PACKAGE_DIR" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+          test -d "$RUNNER_APP"
+          test -x "$RUNNER_APP/Runner"
+          test -s "$RUNNER_APP/Runner"
+          test -s "$RUNNER_APP/Frameworks/App.framework/App"
+          test -s "$RUNNER_APP/Frameworks/Flutter.framework/Flutter"
+          test -d "$RUNNER_APP/Frameworks/App.framework/flutter_assets"
 
           if [[ ! -d "$WIDGET_APPEX" ]]; then
-            WIDGET_PRODUCT="$(find build/ios -type d -name 'SchedulrWidget.appex' ! -path "$WIDGET_APPEX" -print -quit)"
-            if [[ -z "$WIDGET_PRODUCT" ]]; then
-              xcodebuild \
-                -project ios/Runner.xcodeproj \
-                -target SchedulrWidget \
-                -configuration Release \
-                -sdk iphoneos \
-                -destination 'generic/platform=iOS' \
-                CONFIGURATION_BUILD_DIR="$PWD/build/ios/iphoneos" \
-                CODE_SIGNING_ALLOWED=NO \
-                CODE_SIGNING_REQUIRED=NO \
-                build
-              WIDGET_PRODUCT="build/ios/iphoneos/SchedulrWidget.appex"
-            fi
+            WIDGET_PRODUCT="$PACKAGE_DIR/SchedulrWidget.appex"
             test -d "$WIDGET_PRODUCT"
             mkdir -p "$RUNNER_APP/PlugIns"
-            rm -rf "$WIDGET_APPEX"
             cp -R "$WIDGET_PRODUCT" "$WIDGET_APPEX"
           fi
-
-          test -d "$WIDGET_APPEX"
+          test -x "$WIDGET_APPEX/SchedulrWidget"
           find "$RUNNER_APP/PlugIns" -maxdepth 1 -name '*.appex' -print
 
           APP_VERSION="$(grep -m1 '^version:' pubspec.yaml | cut -d' ' -f2 | tr -d '[:space:]')"
@@ -158,14 +164,29 @@ jobs:
           [[ "$RUNNER_BUILD_VERSION" == "$EXPECTED_BUILD_VERSION" ]]
           [[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]
           [[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]
-          printf 'Runner/Widget version verified: %s (%s)\n' "$RUNNER_SHORT_VERSION" "$RUNNER_BUILD_VERSION"
+
+          UNCOMPRESSED_KB="$(du -sk "$RUNNER_APP" | cut -f1)"
+          test "$UNCOMPRESSED_KB" -gt 10000
+          printf 'Complete Runner.app verified: %s (%s), %s KB\n' \
+            "$RUNNER_SHORT_VERSION" "$RUNNER_BUILD_VERSION" "$UNCOMPRESSED_KB"
 
       - name: Package unsigned IPA
         run: |
+          set -euo pipefail
           SAFE_TAG="${GITHUB_REF_NAME//\//-}"
+          IPA="Schedulr-${SAFE_TAG}-ios-unsigned.ipa"
+          rm -rf Payload "$IPA"
           mkdir -p Payload
-          cp -R build/ios/iphoneos/Runner.app Payload/Runner.app
-          zip -qry "Schedulr-${SAFE_TAG}-ios-unsigned.ipa" Payload
+          ditto build/ios/package/Runner.app Payload/Runner.app
+          ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          unzip -tq "$IPA"
+          unzip -l "$IPA" | grep -q 'Payload/Runner.app/Runner'
+          unzip -l "$IPA" | grep -q 'Payload/Runner.app/Frameworks/App.framework/App'
+          unzip -l "$IPA" | grep -q 'Payload/Runner.app/Frameworks/Flutter.framework/Flutter'
+          unzip -l "$IPA" | grep -q 'Payload/Runner.app/PlugIns/SchedulrWidget.appex/SchedulrWidget'
+          IPA_BYTES="$(stat -f%z "$IPA")"
+          test "$IPA_BYTES" -gt 5000000
+          printf 'Unsigned IPA verified: %s bytes\n' "$IPA_BYTES"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
