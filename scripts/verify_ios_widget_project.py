@@ -22,6 +22,7 @@ WIDGET_INFO = WIDGET_DIR / "Info.plist"
 WIDGET_ENTITLEMENTS = WIDGET_DIR / "SchedulrWidget.entitlements"
 FLUTTER_DEBUG_XCCONFIG = IOS / "Flutter" / "Debug.xcconfig"
 FLUTTER_RELEASE_XCCONFIG = IOS / "Flutter" / "Release.xcconfig"
+SETTINGS_PAGE = ROOT / "lib" / "features" / "settings" / "presentation" / "settings_page.dart"
 SIGNED_IPA_VERIFIER = ROOT / "scripts" / "verify_signed_ios_widget_ipa.py"
 
 APP_GROUP = "group.app.schedulr.shared"
@@ -74,7 +75,7 @@ def object_block(text: str, object_id: str) -> str:
     return ""
 
 
-for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SIGNED_IPA_VERIFIER]:
+for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SETTINGS_PAGE, SIGNED_IPA_VERIFIER]:
     require(path.is_file(), f"{path.relative_to(ROOT)} exists")
 
 if not PBXPROJ.is_file():
@@ -87,6 +88,7 @@ workflow = WORKFLOW.read_text() if WORKFLOW.is_file() else ""
 swift = WIDGET_SWIFT.read_text() if WIDGET_SWIFT.is_file() else ""
 flutter_debug_xcconfig = FLUTTER_DEBUG_XCCONFIG.read_text() if FLUTTER_DEBUG_XCCONFIG.is_file() else ""
 flutter_release_xcconfig = FLUTTER_RELEASE_XCCONFIG.read_text() if FLUTTER_RELEASE_XCCONFIG.is_file() else ""
+settings_page = SETTINGS_PAGE.read_text() if SETTINGS_PAGE.is_file() else ""
 
 runner_info = load_plist(RUNNER_INFO) if RUNNER_INFO.is_file() else {}
 runner_entitlements = load_plist(RUNNER_ENTITLEMENTS) if RUNNER_ENTITLEMENTS.is_file() else {}
@@ -145,8 +147,8 @@ for config_id, name in [
     require('CODE_SIGN_ENTITLEMENTS = SchedulrWidget/SchedulrWidget.entitlements;' in config, f"widget {name} entitlements are configured")
     require('APPLICATION_EXTENSION_API_ONLY = YES;' in config, f"widget {name} enforces extension-safe APIs")
     require('SKIP_INSTALL = YES;' in config, f"widget {name} uses SKIP_INSTALL")
-    require('CURRENT_PROJECT_VERSION = 13;' in config, f"widget {name} has a non-empty default build number")
-    require('MARKETING_VERSION = 1.1.13;' in config, f"widget {name} has a non-empty default marketing version")
+    require('CURRENT_PROJECT_VERSION = 14;' in config, f"widget {name} has a non-empty default build number")
+    require('MARKETING_VERSION = 1.1.14;' in config, f"widget {name} has a non-empty default marketing version")
     expected_base = "9740EEB21CF90195004384FC" if name == "Debug" else "7AFA3C8E1D35360C0083082E"
     require(f"baseConfigurationReference = {expected_base}" in config, f"widget {name} inherits Flutter-generated version settings")
 
@@ -211,12 +213,19 @@ require(all(f'case {number}: return "{label}"' in swift for number, label in wee
 require('selectedDay.teachingWeek == nil' in swift and 'case .noData:' in swift, "outside-semester is selected-day teachingWeek nil while noTimetable remains noData")
 require('selectedDay.dateText' in swift and 'selectedDay.weekText' in swift and 'selectedDay.courses.prefix(3)' in swift, "widget displays selected date, teaching week, and course list")
 require('snapshot.nextDaySummary(after: selectedDay)' in swift and 'nextDay(after day: DayProjection)' in swift, "widget derives the next-day summary from the selected day")
+require('func fallbackCourse(after day: DayProjection) -> CourseItem?' in swift and 'nextDay(after: day)?.courses.first' in swift, "widget fallback selects only the next-day first course")
+require('current == nil && next == nil ? snapshot.fallbackCourse(after: selectedDay) : nil' in swift, "widget only applies the next-day fallback when today has no current or next course")
+require('return "明天第一节"' in swift and 'return "明天无课"' in swift, "widget labels fallback and rest states explicitly")
+require('return "明天无课 · 好好休息"' in swift, "widget uses the explicit tomorrow rest summary")
+require('let featured = current ?? next ?? fallback' in swift, "widget presents current, next, or fallback course in priority order")
 require('keys: ["timeText", "time", "periodText"]' in swift, "widget parser accepts the course time string")
 require("case .noData" in swift and "case .corrupt" in swift and "isStale" in swift, "widget handles no-data, corrupt, and stale states")
 require("nextMidnight" in swift and "coursePoints" in swift and "$0.start, $0.end" in swift, "timeline includes midnight and every parsed course boundary")
 require('coursePoints.filter { $0 > now && $0 < nextMidnight }' in swift, "timeline bounds course transitions before midnight without suppressing close boundaries")
 require('if let expiresAt = snapshot.expiresAt, expiresAt > now' in swift and 'candidates.append(expiresAt)' in swift, "timeline includes the snapshot expiry boundary")
 require('schemaVersion == nil || schemaVersion == 1' in swift, "widget rejects unsupported snapshot schema versions")
+require("已请求刷新桌面小组件，系统可能需要几秒生效。" in settings_page, "settings success message describes best-effort WidgetKit refresh")
+require("小组件同步失败，请检查安装包签名或稍后重试。" in settings_page, "settings failure message remains available")
 
 require("flutter test --concurrency=1" in workflow, "release workflow runs Flutter tests sequentially")
 require("Test Android widget parser" in workflow and ":app:testDebugUnitTest" in workflow, "release workflow runs Android native widget tests")

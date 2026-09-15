@@ -114,14 +114,23 @@ private struct ScheduleProjection {
         }
     }
 
+    /// Pure fallback policy: when today has no current or upcoming course,
+    /// show only tomorrow's first course instead of leaking the rest of tomorrow's schedule.
+    func fallbackCourse(after day: DayProjection) -> CourseItem? {
+        nextDay(after: day)?.courses.first
+    }
+
     func nextDaySummary(after day: DayProjection) -> String {
         guard let nextDay = nextDay(after: day) else {
-            return "次日课表请打开应用查看"
+            return "明天无课 · 好好休息"
+        }
+        guard !nextDay.courses.isEmpty else {
+            return "明天无课 · 好好休息"
         }
         guard nextDay.teachingWeek != nil else {
             return "次日不在教学周"
         }
-        return nextDay.courses.isEmpty ? "次日暂无课程" : "次日 \(nextDay.courses.count) 节课"
+        return "明天 \(nextDay.courses.count) 节课"
     }
 }
 
@@ -509,6 +518,16 @@ private struct SchedulrWidgetView: View {
     private func scheduleView(_ snapshot: ScheduleProjection, selectedDay: DayProjection) -> some View {
         let current = snapshot.currentCourse(in: selectedDay, at: entry.date)
         let next = snapshot.nextCourse(in: selectedDay, at: entry.date)
+        let fallback = current == nil && next == nil ? snapshot.fallbackCourse(after: selectedDay) : nil
+        let featured = current ?? next ?? fallback
+        let featuredLabel: String = {
+            if current != nil { return "正在上课" }
+            if next != nil { return "下一节" }
+            if fallback != nil { return "明天第一节" }
+            return "明天无课"
+        }()
+        let featuredEmptyTitle = fallback == nil ? "明天无课 · 好好休息" : "当日暂无课程"
+        let featuredEmptyDetail = fallback == nil ? "" : "享受空闲时间"
         let nextDaySummary = snapshot.nextDaySummary(after: selectedDay)
         VStack(alignment: .leading, spacing: family == .systemSmall ? 7 : 9) {
             HeaderView(
@@ -518,7 +537,12 @@ private struct SchedulrWidgetView: View {
             )
 
             if family == .systemSmall {
-                FeaturedCourseView(label: current == nil ? "下一节" : "正在上课", course: current ?? next)
+                FeaturedCourseView(
+                    label: featuredLabel,
+                    course: featured,
+                    emptyTitle: featuredEmptyTitle,
+                    emptyDetail: featuredEmptyDetail
+                )
                 Spacer(minLength: 0)
                 Text(nextDaySummary)
                     .font(.caption2)
@@ -526,7 +550,12 @@ private struct SchedulrWidgetView: View {
                     .lineLimit(1)
             } else {
                 HStack(alignment: .top, spacing: 12) {
-                    FeaturedCourseView(label: current == nil ? "下一节" : "正在上课", course: current ?? next)
+                    FeaturedCourseView(
+                        label: featuredLabel,
+                        course: featured,
+                        emptyTitle: featuredEmptyTitle,
+                        emptyDetail: featuredEmptyDetail
+                    )
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let next, next.id != current?.id {
                         FeaturedCourseView(label: "接下来", course: next)
@@ -592,6 +621,20 @@ private struct HeaderView: View {
 private struct FeaturedCourseView: View {
     let label: String
     let course: CourseItem?
+    let emptyTitle: String
+    let emptyDetail: String
+
+    init(
+        label: String,
+        course: CourseItem?,
+        emptyTitle: String = "当日暂无课程",
+        emptyDetail: String = "享受空闲时间"
+    ) {
+        self.label = label
+        self.course = course
+        self.emptyTitle = emptyTitle
+        self.emptyDetail = emptyDetail
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -611,12 +654,14 @@ private struct FeaturedCourseView: View {
                         .minimumScaleFactor(0.8)
                 }
             } else {
-                Text("当日暂无课程")
+                Text(emptyTitle)
                     .font(.headline)
                     .lineLimit(2)
-                Text("享受空闲时间")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                if !emptyDetail.isEmpty {
+                    Text(emptyDetail)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
             }
         }
     }

@@ -66,6 +66,79 @@ class WidgetSnapshotParserTest {
     }
 
     @Test
+    fun keepsTomorrowAsTomorrowAndFallsBackOnlyToItsFirstCourse() {
+        val timeZone = TimeZone.getTimeZone("UTC")
+        val snapshot = WidgetSnapshotParser.parseMap(
+            snapshotMap(
+                today = day(
+                    "2026-09-14",
+                    1,
+                    2,
+                    listOf(course("已结束", "08:00-09:00")),
+                ),
+                tomorrow = day(
+                    "2026-09-15",
+                    2,
+                    2,
+                    listOf(
+                        course("明天第一节", "08:00-09:00"),
+                        course("明天第二节", "10:00-11:00"),
+                    ),
+                ),
+                futureDays = listOf(
+                    day("2026-09-16", 3, 2, listOf(course("后天课程", "08:00-09:00"))),
+                ),
+            ),
+            Instant.parse("2026-09-14T12:00:00Z").toEpochMilli(),
+            timeZone,
+        )
+
+        assertEquals(WidgetNextSource.TOMORROW, snapshot.nextSource)
+        assertEquals("2026-09-15", snapshot.nextDate)
+        assertEquals("明天第一节", snapshot.next?.name)
+        assertEquals(listOf("已结束"), snapshot.today.map { it.name })
+        assertEquals(listOf("明天第一节", "明天第二节"), snapshot.tomorrow.map { it.name })
+        assertEquals(2, snapshot.tomorrowTeachingWeek)
+    }
+
+    @Test
+    fun parsesTomorrowTeachingWeekAndKeepsTomorrowEmptyDistinct() {
+        val snapshot = WidgetSnapshotParser.parseMap(
+            snapshotMap(
+                today = day("2026-09-14", 1, 2, emptyList()),
+                tomorrow = day("2026-09-15", 2, null, emptyList()),
+            ),
+            Instant.parse("2026-09-14T12:00:00Z").toEpochMilli(),
+            TimeZone.getTimeZone("UTC"),
+        )
+
+        assertEquals(WidgetNextSource.NONE, snapshot.nextSource)
+        assertEquals("2026-09-15", snapshot.tomorrowDate)
+        assertNull(snapshot.tomorrowTeachingWeek)
+        assertTrue(snapshot.tomorrow.isEmpty())
+    }
+
+    @Test
+    fun doesNotSkipTomorrowWhenTomorrowIsToday() {
+        val snapshot = WidgetSnapshotParser.parseMap(
+            snapshotMap(
+                today = day("2026-09-15", 2, 2, listOf(course("昨天", "08:00-09:00"))),
+                tomorrow = day("2026-09-16", 3, 2, listOf(course("今天的课表", "08:00-09:00"))),
+                futureDays = listOf(
+                    day("2026-09-17", 4, 2, listOf(course("后天", "08:00-09:00"))),
+                ),
+            ),
+            Instant.parse("2026-09-16T08:00:00Z").toEpochMilli(),
+            TimeZone.getTimeZone("UTC"),
+        )
+
+        assertEquals("9月16日 周三", snapshot.dateLabel)
+        assertEquals(listOf("今天的课表"), snapshot.today.map { it.name })
+        assertEquals("今天的课表", snapshot.next?.name)
+        assertEquals(WidgetNextSource.TODAY, snapshot.nextSource)
+    }
+
+    @Test
     fun storedOngoingFlagBecomesFalseAfterCourseEnds() {
         val snapshot = WidgetSnapshotParser.parseMap(
             snapshotMap(

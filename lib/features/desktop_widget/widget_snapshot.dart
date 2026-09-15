@@ -127,6 +127,7 @@ class WidgetSnapshot {
     required this.semesterName,
     required this.today,
     required this.next,
+    this.nextDate,
     required this.tomorrow,
     required List<WidgetDay> futureDays,
   }) : futureDays = List.unmodifiable(futureDays);
@@ -162,6 +163,7 @@ class WidgetSnapshot {
       semesterName: null,
       today: projectedDays[0],
       next: null,
+      nextDate: null,
       tomorrow: projectedDays[1],
       futureDays: projectedDays.skip(2).toList(growable: false),
     );
@@ -175,6 +177,7 @@ class WidgetSnapshot {
   final String? semesterName;
   final WidgetDay today;
   final WidgetCourse? next;
+  final String? nextDate;
   final WidgetDay tomorrow;
   final List<WidgetDay> futureDays;
 
@@ -189,6 +192,7 @@ class WidgetSnapshot {
     'semesterName': semesterName,
     'today': today.toMap(),
     'next': next?.toMap(),
+    'nextDate': nextDate,
     'tomorrow': tomorrow.toMap(),
     'futureDays': futureDays.map((day) => day.toMap()).toList(growable: false),
   };
@@ -212,6 +216,7 @@ class WidgetSnapshot {
       next: rawNext == null
           ? null
           : WidgetCourse.fromMap(Map<String, Object?>.from(rawNext as Map)),
+      nextDate: map['nextDate'] as String?,
       tomorrow: WidgetDay.fromMap(
         Map<String, Object?>.from(map['tomorrow'] as Map),
       ),

@@ -102,10 +102,63 @@ void main() {
       );
     });
 
+    test('uses tomorrow after today has ended', () {
+      final timetable = _timetable(
+        courses: [
+          _course(id: 'today', name: 'Today', weekday: DateTime.monday),
+          _course(
+            id: 'tomorrow',
+            name: 'Tomorrow',
+            weekday: DateTime.tuesday,
+            startPeriod: 2,
+          ),
+        ],
+      );
+      final snapshot = const WidgetSnapshotProjector().project(
+        timetable,
+        DateTime(2026, 9, 7, 10),
+      );
+
+      expect(snapshot.next?.courseId, 'tomorrow');
+      expect(snapshot.nextDate, '2026-09-08');
+      expect(snapshot.next?.ongoing, isFalse);
+    });
+
+    test('uses tomorrow when today has no courses', () {
+      final timetable = _timetable(
+        courses: [
+          _course(id: 'tomorrow', name: 'Tomorrow', weekday: DateTime.tuesday),
+        ],
+      );
+      final snapshot = const WidgetSnapshotProjector().project(
+        timetable,
+        DateTime(2026, 9, 7, 10),
+      );
+
+      expect(snapshot.today.courses, isEmpty);
+      expect(snapshot.next?.courseId, 'tomorrow');
+      expect(snapshot.nextDate, snapshot.tomorrow.date);
+    });
+
+    test('does not skip to future days when tomorrow is empty', () {
+      final timetable = _timetable(
+        courses: [
+          _course(id: 'future', name: 'Future', weekday: DateTime.wednesday),
+        ],
+      );
+      final snapshot = const WidgetSnapshotProjector().project(
+        timetable,
+        DateTime(2026, 9, 7, 10),
+      );
+
+      expect(snapshot.tomorrow.courses, isEmpty);
+      expect(snapshot.next, isNull);
+      expect(snapshot.nextDate, isNull);
+      expect(snapshot.futureDays.first.courses.single.courseId, 'future');
+    });
+
     test('does not carry courses across a teaching-week boundary', () {
       final timetable = _timetable(
-        startDate: DateTime(2026, 9, 7),
-        teachingWeeks: 2,
         courses: [
           _course(
             id: 'week-two',
@@ -196,6 +249,29 @@ void main() {
       ]);
     });
 
+    test('round trips nextDate and accepts legacy snapshots', () {
+      final snapshot = const WidgetSnapshotProjector().project(
+        _timetable(
+          courses: [
+            _course(
+              id: 'tomorrow',
+              name: 'Tomorrow',
+              weekday: DateTime.tuesday,
+            ),
+          ],
+        ),
+        DateTime(2026, 9, 7, 10),
+      );
+      final decoded = WidgetSnapshot.fromJson(snapshot.toJson());
+      final legacy = Map<String, Object?>.from(snapshot.toMap())
+        ..remove('nextDate');
+      final legacyDecoded = WidgetSnapshot.fromMap(legacy);
+
+      expect(decoded.nextDate, snapshot.nextDate);
+      expect(decoded, snapshot);
+      expect(legacyDecoded.nextDate, isNull);
+    });
+
     test('round trips stable JSON without private course fields', () {
       final snapshot = const WidgetSnapshotProjector().project(
         _timetable(
@@ -260,16 +336,22 @@ void main() {
     test('accepts a valid read-back schema before updating widget', () async {
       final bridge = _FakeBridge();
       final snapshot = WidgetSnapshot.noTimetable(DateTime(2026, 9, 7));
-      await WidgetSnapshotPublisher(bridge).publish(snapshot);
+      await WidgetSnapshotPublisher(
+        bridge,
+        updateRetryDelay: Duration.zero,
+      ).publish(snapshot);
 
-      expect(bridge.calls.last, 'update');
+      expect(bridge.calls.where((call) => call == 'update'), hasLength(1));
     });
 
     test(
       'uses shared group, snapshot key indirectly, update names and clear',
       () async {
         final bridge = _FakeBridge();
-        final publisher = WidgetSnapshotPublisher(bridge);
+        final publisher = WidgetSnapshotPublisher(
+          bridge,
+          updateRetryDelay: Duration.zero,
+        );
         final snapshot = WidgetSnapshot.noTimetable(DateTime(2026, 9, 7));
 
         await publisher.publish(snapshot);
@@ -284,6 +366,23 @@ void main() {
         ]);
       },
     );
+
+    test('retries a failed widget update once and reports the retry', () async {
+      final bridge = _FakeBridge()..failFirstUpdate = true;
+      final diagnostics = <WidgetPublishDiagnostics>[];
+
+      await WidgetSnapshotPublisher(
+        bridge,
+        updateRetryDelay: Duration.zero,
+        onDiagnostics: diagnostics.add,
+      ).publish(WidgetSnapshot.noTimetable(DateTime(2026, 9, 7)));
+
+      expect(bridge.calls.where((call) => call == 'update'), hasLength(2));
+      expect(
+        diagnostics.any((item) => item.errorCode == 'widget-update-retry'),
+        isTrue,
+      );
+    });
   });
 }
 
@@ -357,8 +456,9 @@ class _FakeBridge implements WidgetStorageBridge {
   String? savedSnapshot;
   String? readBackOverride;
   bool forceEmptyReadBack = false;
+  bool failFirstUpdate = false;
+  int updateAttempts = 0;
   final calls = <String>[];
-
   @override
   Future<void> setAppGroupId(String groupId) async =>
       calls.add('group:$groupId');
@@ -374,7 +474,13 @@ class _FakeBridge implements WidgetStorageBridge {
       forceEmptyReadBack ? null : readBackOverride ?? savedSnapshot;
 
   @override
-  Future<void> updateWidget() async => calls.add('update');
+  Future<void> updateWidget() async {
+    updateAttempts++;
+    calls.add('update');
+    if (failFirstUpdate && updateAttempts == 1) {
+      throw StateError('transient update failure');
+    }
+  }
 
   @override
   Future<void> clearSnapshot() async => calls.add('clear');

@@ -156,13 +156,42 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
                 hideRows(views)
             }
             else -> {
-                val next = snapshot.next
-                views.setTextViewText(R.id.widget_next_label, if (next?.ongoing == true) "正在上课" else "下一节")
-                views.setTextViewText(R.id.widget_next_name, next?.name ?: "今天没有更多课程")
-                views.setTextViewText(
-                    R.id.widget_next_detail,
-                    next?.let { detail(it, compact) } ?: "享受今天的空闲时间",
-                )
+                val hero = WidgetDisplayStrategy.hero(snapshot)
+                when (hero.source) {
+                    WidgetHeroSource.TODAY -> {
+                        val next = hero.course
+                        views.setTextViewText(R.id.widget_next_label, if (next?.ongoing == true) "正在上课" else "下一节")
+                        views.setTextViewText(R.id.widget_next_name, next?.name ?: "今天没有更多课程")
+                        views.setTextViewText(
+                            R.id.widget_next_detail,
+                            next?.let { detail(it, compact) } ?: "享受今天的空闲时间",
+                        )
+                    }
+                    WidgetHeroSource.TOMORROW -> {
+                        val next = hero.course
+                        views.setTextViewText(R.id.widget_next_label, "明天第一节")
+                        views.setTextViewText(R.id.widget_next_name, next?.name ?: "明天没有课程")
+                        views.setTextViewText(
+                            R.id.widget_next_detail,
+                            next?.let { detail(it, compact) } ?: "好好休息",
+                        )
+                    }
+                    WidgetHeroSource.TOMORROW_EMPTY -> {
+                        views.setTextViewText(R.id.widget_next_label, "明天无课")
+                        views.setTextViewText(R.id.widget_next_name, "好好休息")
+                        views.setTextViewText(R.id.widget_next_detail, "")
+                    }
+                    WidgetHeroSource.TOMORROW_OUTSIDE -> {
+                        views.setTextViewText(R.id.widget_next_label, "明天不在教学周")
+                        views.setTextViewText(R.id.widget_next_name, "好好休息")
+                        views.setTextViewText(R.id.widget_next_detail, "")
+                    }
+                    WidgetHeroSource.NONE -> {
+                        views.setTextViewText(R.id.widget_next_label, "下一节")
+                        views.setTextViewText(R.id.widget_next_name, "今天没有更多课程")
+                        views.setTextViewText(R.id.widget_next_detail, "享受今天的空闲时间")
+                    }
+                }
                 bindRows(views, snapshot.today, compact)
             }
         }

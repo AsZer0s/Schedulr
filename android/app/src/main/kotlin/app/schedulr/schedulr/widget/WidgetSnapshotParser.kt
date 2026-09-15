@@ -20,6 +20,12 @@ data class WidgetCourse(
     val ongoing: Boolean = false,
 )
 
+enum class WidgetNextSource {
+    TODAY,
+    TOMORROW,
+    NONE,
+}
+
 data class WidgetSnapshot(
     val schemaVersion: Int? = null,
     val state: String = STATE_EMPTY,
@@ -30,7 +36,13 @@ data class WidgetSnapshot(
     val dateLabel: String = "",
     val weekLabel: String = "",
     val next: WidgetCourse? = null,
+    val nextDate: String = "",
+    val nextSource: WidgetNextSource = WidgetNextSource.NONE,
     val today: List<WidgetCourse> = emptyList(),
+    val tomorrowDate: String = "",
+    val tomorrowWeekLabel: String = "",
+    val tomorrowTeachingWeek: Int? = null,
+    val tomorrow: List<WidgetCourse> = emptyList(),
 ) {
     val isCorrupt: Boolean get() = state == STATE_CORRUPT
     val isStale: Boolean get() = state == STATE_STALE
@@ -70,7 +82,10 @@ object WidgetSnapshotParser {
         nowMillis: Long = System.currentTimeMillis(),
         timeZone: TimeZone = TimeZone.getDefault(),
     ): WidgetSnapshot {
-        val selectedDay = selectDay(root, localDate(nowMillis, timeZone))
+        val todayDate = localDate(nowMillis, timeZone)
+        val tomorrowDate = localDate(addCalendarDays(nowMillis, 1, timeZone), timeZone)
+        val selectedDay = selectDay(root, todayDate)
+        val tomorrowDay = selectDay(root, tomorrowDate)
         val hasProjectedDays = root["tomorrow"] != null || root["futureDays"] != null
         val selectedDate = selectedDay?.text("date") ?: root.firstText("date", "dateLabel") ?: ""
         val generatedAt = parseTimestamp(root["generatedAt"])
@@ -80,6 +95,8 @@ object WidgetSnapshotParser {
         val semesterName = root.firstText("semesterName") ?: ""
         val teachingWeek = selectedDay?.nullableInt("teachingWeek")
         val weekday = selectedDay?.number("weekday")?.toInt()
+        val tomorrowTeachingWeek = tomorrowDay?.nullableInt("teachingWeek")
+        val tomorrowWeekday = tomorrowDay?.number("weekday")?.toInt()
 
         val state = when {
             rawState in setOf("notimetable", "no_timetable", "empty", "none") -> WidgetSnapshot.STATE_EMPTY
@@ -97,7 +114,19 @@ object WidgetSnapshotParser {
         val coursesNode = selectedDay?.get("courses")
             ?: if (selectedDay == null) root["todayCourses"] ?: root["courses"] else null
         val courses = coursesFrom(coursesNode, selectedDate, nowMillis, timeZone)
-        val next = deriveNext(courses, selectedDate, nowMillis, timeZone)
+        val tomorrowCourses = coursesFrom(
+            tomorrowDay?.get("courses"),
+            tomorrowDate,
+            nowMillis,
+            timeZone,
+        )
+        val todayNext = deriveNext(courses, selectedDate, nowMillis, timeZone)
+        val next = todayNext ?: tomorrowCourses.firstOrNull()
+        val nextSource = when {
+            todayNext != null -> WidgetNextSource.TODAY
+            next != null -> WidgetNextSource.TOMORROW
+            else -> WidgetNextSource.NONE
+        }
 
         return WidgetSnapshot(
             schemaVersion = root.number("schemaVersion")?.toInt()?.takeIf { it > 0 },
@@ -109,7 +138,17 @@ object WidgetSnapshotParser {
             dateLabel = formatDate(selectedDate, weekday),
             weekLabel = teachingWeek?.takeIf { it > 0 }?.let { "第${it}周" } ?: "",
             next = next,
+            nextDate = when (nextSource) {
+                WidgetNextSource.TODAY -> selectedDate
+                WidgetNextSource.TOMORROW -> tomorrowDate
+                WidgetNextSource.NONE -> ""
+            },
+            nextSource = nextSource,
             today = courses,
+            tomorrowDate = tomorrowDay?.text("date") ?: tomorrowDate,
+            tomorrowWeekLabel = tomorrowTeachingWeek?.takeIf { it > 0 }?.let { "第${it}周" } ?: "",
+            tomorrowTeachingWeek = tomorrowTeachingWeek,
+            tomorrow = tomorrowCourses,
         )
     }
 
@@ -256,6 +295,12 @@ object WidgetSnapshotParser {
 
     private fun localDate(nowMillis: Long, timeZone: TimeZone): String =
         SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { this.timeZone = timeZone }.format(Date(nowMillis))
+
+    private fun addCalendarDays(nowMillis: Long, days: Int, timeZone: TimeZone): Long =
+        Calendar.getInstance(timeZone).apply {
+            timeInMillis = nowMillis
+            add(Calendar.DAY_OF_MONTH, days)
+        }.timeInMillis
 
     private fun localMinuteOfDay(nowMillis: Long, timeZone: TimeZone): Int {
         val calendar = Calendar.getInstance(timeZone).apply { timeInMillis = nowMillis }

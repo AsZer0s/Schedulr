@@ -29,7 +29,14 @@ class WidgetSnapshotProjector {
 
     final today = days[0];
     final tomorrow = days[1];
-    final next = _nextCourse(today, localNow);
+    final todayNext = _nextCourse(today, localNow);
+    final next =
+        todayNext ?? (tomorrow.courses.isEmpty ? null : tomorrow.courses.first);
+    final nextDate = todayNext != null
+        ? today.date
+        : next == null
+        ? null
+        : tomorrow.date;
     final lastDay = _calendarDate(todayDate, projectionDays - 1);
     final expiresAt = DateTime(
       lastDay.year,
@@ -54,6 +61,7 @@ class WidgetSnapshotProjector {
       tomorrow: tomorrow,
       futureDays: days.skip(2).toList(growable: false),
       next: next,
+      nextDate: nextDate,
     );
   }
 

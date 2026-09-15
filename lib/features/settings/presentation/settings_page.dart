@@ -81,8 +81,9 @@ class SettingsPage extends StatelessWidget {
               try {
                 await onRefreshWidget();
                 if (!context.mounted) return;
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('桌面小组件已刷新。')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已请求刷新桌面小组件，系统可能需要几秒生效。')),
+                );
               } on Object {
                 if (!context.mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -105,7 +106,7 @@ class SettingsPage extends StatelessWidget {
           ),
           const AboutListTile(
             applicationName: '课程表',
-            applicationVersion: '1.1.13',
+            applicationVersion: '1.1.14',
             applicationLegalese: '本应用默认不长期保存教务密码。',
           ),
         ],

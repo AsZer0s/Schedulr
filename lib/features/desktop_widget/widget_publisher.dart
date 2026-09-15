@@ -114,10 +114,15 @@ class WidgetStorageReadBackException implements Exception {
 }
 
 class WidgetSnapshotPublisher {
-  const WidgetSnapshotPublisher(this.bridge, {this.onDiagnostics});
+  const WidgetSnapshotPublisher(
+    this.bridge, {
+    this.onDiagnostics,
+    this.updateRetryDelay = const Duration(milliseconds: 150),
+  });
 
   final WidgetStorageBridge bridge;
   final void Function(WidgetPublishDiagnostics diagnostics)? onDiagnostics;
+  final Duration updateRetryDelay;
 
   Future<void> publish(WidgetSnapshot snapshot, {int attempt = 1}) async {
     _report(
@@ -146,7 +151,31 @@ class WidgetSnapshotPublisher {
           occurredAt: DateTime.now().toUtc(),
         ),
       );
-      await bridge.updateWidget();
+      Object? updateError;
+      for (var updateAttempt = 0; updateAttempt < 2; updateAttempt++) {
+        try {
+          await bridge.updateWidget();
+          updateError = null;
+          break;
+        } on Object catch (error) {
+          updateError = error;
+          if (updateAttempt == 0) {
+            _report(
+              WidgetPublishDiagnostics(
+                stage: WidgetPublishStage.failed,
+                attempt: attempt,
+                occurredAt: DateTime.now().toUtc(),
+                errorCode: 'widget-update-retry',
+                retryable: true,
+              ),
+            );
+          }
+          if (updateAttempt == 0 && updateRetryDelay > Duration.zero) {
+            await Future<void>.delayed(updateRetryDelay);
+          }
+        }
+      }
+      if (updateError != null) throw updateError;
       _report(
         WidgetPublishDiagnostics(
           stage: WidgetPublishStage.completed,
