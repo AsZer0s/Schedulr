@@ -21,7 +21,8 @@
 		A10000000000000000000003 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000004 /* WidgetKit.framework */; };
 		A10000000000000000000005 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A10000000000000000000006 /* SwiftUI.framework */; };
 		A10000000000000000000007 /* SchedulrWidget.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000008 /* SchedulrWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		B10000000000000000000001 /* SelectTimetable.intentdefinition in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* SelectTimetable.intentdefinition */; };
+		B10000000000000000000001 /* SelectTimetable.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* SelectTimetable.intentdefinition */; };
+		B10000000000000000000020 /* SelectTimetable.intentdefinition in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* SelectTimetable.intentdefinition */; };
 		B10000000000000000000003 /* IntentHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* IntentHandler.swift */; };
 		B1000000000000000000000F /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B10000000000000000000019 /* Intents.framework */; };
 		B10000000000000000000005 /* SchedulrIntentExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* SchedulrIntentExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -352,11 +353,10 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				B10000000000000000000001 /* SelectTimetable.intentdefinition in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B10000000000000000000015 /* Intent Resources */ = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ( B10000000000000000000001 /* SelectTimetable.intentdefinition in Resources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000015 /* Intent Resources */ = { isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = ( ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -418,10 +418,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				A10000000000000000000001 /* SchedulrWidget.swift in Sources */,
+				B10000000000000000000001 /* SelectTimetable.intentdefinition in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		B10000000000000000000014 /* Intent Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10000000000000000000003 /* IntentHandler.swift in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		B10000000000000000000014 /* Intent Sources */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = ( B10000000000000000000003 /* IntentHandler.swift in Sources */, B10000000000000000000020 /* SelectTimetable.intentdefinition in Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
