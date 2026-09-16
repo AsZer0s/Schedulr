@@ -56,10 +56,7 @@ class _SchedulrAppState extends ConsumerState<SchedulrApp> {
       },
     );
     if (widget.enableDesktopWidgetSync) {
-      ref.listenManual(
-        currentTimetableProvider,
-        (_, _) => _scheduleWidgetPublish(),
-      );
+      ref.listenManual(semestersProvider, (_, _) => _scheduleWidgetPublish());
       ref.listenManual(currentDateProvider, (_, _) => _scheduleWidgetPublish());
       _widgetClickSubscription =
           (widget.desktopWidgetClicks ?? HomeWidget.widgetClicked).listen(
@@ -115,7 +112,7 @@ class _SchedulrAppState extends ConsumerState<SchedulrApp> {
             repository: ref.read(timetableRepositoryProvider),
             bridge: ref.read(widgetStorageBridgeProvider),
             onDiagnostics: widget.onDesktopWidgetDiagnostics,
-          ).publishCurrent(now, attempt: attempt);
+          ).publishAll(now, attempt: attempt);
         }
         return;
       } on Object catch (error, stackTrace) {

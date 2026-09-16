@@ -147,6 +147,7 @@ jobs:
           PACKAGE_ROOT="$PWD/build/ios/iphoneos"
           RUNNER_APP="$PACKAGE_ROOT/Runner.app"
           WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"
+          INTENT_APPEX="$RUNNER_APP/PlugIns/SchedulrIntentExtension.appex"
           rm -rf "$PACKAGE_ROOT"
 
           xcodebuild \
@@ -177,7 +178,15 @@ jobs:
             mkdir -p "$RUNNER_APP/PlugIns"
             cp -R "$WIDGET_PRODUCT" "$WIDGET_APPEX"
           fi
+          if [[ ! -d "$INTENT_APPEX" ]]; then
+            INTENT_PRODUCT="$PACKAGE_ROOT/SchedulrIntentExtension.appex"
+            test -d "$INTENT_PRODUCT"
+            mkdir -p "$RUNNER_APP/PlugIns"
+            cp -R "$INTENT_PRODUCT" "$INTENT_APPEX"
+          fi
           test -x "$WIDGET_APPEX/SchedulrWidget"
+          test -d "$INTENT_APPEX"
+          test -x "$INTENT_APPEX/SchedulrIntentExtension"
           find "$RUNNER_APP/PlugIns" -maxdepth 1 -name '*.appex' -print
 
           APP_VERSION="$(grep -m1 '^version:' pubspec.yaml | cut -d' ' -f2 | tr -d '[:space:]')"
@@ -197,16 +206,22 @@ jobs:
           set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"
           set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"
           set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"
+          set_or_add_plist_string "$INTENT_APPEX/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"
+          set_or_add_plist_string "$INTENT_APPEX/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"
 
           RUNNER_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$RUNNER_APP/Info.plist")"
           RUNNER_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_APP/Info.plist")"
           WIDGET_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$WIDGET_APPEX/Info.plist")"
           WIDGET_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$WIDGET_APPEX/Info.plist")"
+          INTENT_SHORT_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INTENT_APPEX/Info.plist")"
+          INTENT_BUILD_VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$INTENT_APPEX/Info.plist")"
 
           [[ "$RUNNER_SHORT_VERSION" == "$EXPECTED_SHORT_VERSION" ]]
           [[ "$RUNNER_BUILD_VERSION" == "$EXPECTED_BUILD_VERSION" ]]
           [[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]
           [[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]
+          [[ "$RUNNER_SHORT_VERSION" == "$INTENT_SHORT_VERSION" ]]
+          [[ "$RUNNER_BUILD_VERSION" == "$INTENT_BUILD_VERSION" ]]
 
           UNCOMPRESSED_KB="$(du -sk "$RUNNER_APP" | cut -f1)"
           test "$UNCOMPRESSED_KB" -gt 10000
@@ -227,6 +242,7 @@ jobs:
           unzip -l "$IPA" | grep -q 'Payload/Runner.app/Frameworks/App.framework/App'
           unzip -l "$IPA" | grep -q 'Payload/Runner.app/Frameworks/Flutter.framework/Flutter'
           unzip -l "$IPA" | grep -q 'Payload/Runner.app/PlugIns/SchedulrWidget.appex/SchedulrWidget'
+          unzip -l "$IPA" | grep -q 'Payload/Runner.app/PlugIns/SchedulrIntentExtension.appex/SchedulrIntentExtension'
           IPA_BYTES="$(stat -f%z "$IPA")"
           test "$IPA_BYTES" -gt 5000000
           printf 'Unsigned IPA verified: %s bytes\n' "$IPA_BYTES"
@@ -258,4 +274,4 @@ jobs:
           files: dist/*
           body: |
             Android APK：只有配置正式 keystore 时才是正式签名产物；未配置时文件名会标记为 `android-unsigned.apk`，需要安装前自行签名。
-            iOS IPA 当前是 unsigned 输入包，不是可直接安装的成品。安装前必须由同一 Apple Developer Team 分别签名 Runner.app/PlugIns/SchedulrWidget.appex 和 Runner.app，并让双方授权 `group.app.schedulr.shared`；签名后的 IPA 可使用 `scripts/verify_signed_ios_widget_ipa.py` 检查。
+            iOS IPA 当前是 unsigned 输入包，不是可直接安装的成品。安装前必须由同一 Apple Developer Team 分别签名 `SchedulrIntentExtension.appex`、`SchedulrWidget.appex` 和 `Runner.app`，并让三个目标授权 `group.app.schedulr.shared`；签名后的 IPA 可使用 `scripts/verify_signed_ios_widget_ipa.py` 检查。

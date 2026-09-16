@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>INIntentDefinitionNamespace</key>
+	<string>SchedulrIntents</string>
+	<key>INIntentDefinitionVersion</key>
+	<dict>
+		<key>Major</key>
+		<integer>1</integer>
+		<key>Minor</key>
+		<integer>0</integer>
+		<key>Patch</key>
+		<integer>0</integer>
+	</dict>
+	<key>INIntentObjects</key>
+	<array>
+		<dict>
+			<key>INIntentObjectTypeDisplayName</key>
+			<string>课表</string>
+			<key>INIntentObjectTypeName</key>
+			<string>Timetable</string>
+		</dict>
+	</array>
+	<key>INIntents</key>
+	<array>
+		<dict>
+			<key>INIntentCategory</key>
+			<string>information</string>
+			<key>INIntentDescription</key>
+			<string>选择要显示在 Schedulr 小组件中的课表。</string>
+			<key>INIntentEligibleForWidgets</key>
+			<true/>
+			<key>INIntentName</key>
+			<string>SelectTimetableIntent</string>
+			<key>INIntentParameters</key>
+			<array>
+				<dict>
+					<key>INIntentParameterClassName</key>
+					<string>INObject</string>
+					<key>INIntentParameterDisplayName</key>
+					<string>课表</string>
+					<key>INIntentParameterName</key>
+					<string>timetable</string>
+					<key>INIntentParameterObjectType</key>
+					<string>Timetable</string>
+					<key>INIntentParameterSupportsDynamicEnumeration</key>
+					<true/>
+					<key>INIntentParameterType</key>
+					<string>INObject</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+</dict>
+</plist>

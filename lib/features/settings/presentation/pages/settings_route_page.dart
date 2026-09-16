@@ -38,7 +38,7 @@ class SettingsRoutePage extends ConsumerWidget {
         await WidgetSnapshotCoordinator(
           repository: ref.read(timetableRepositoryProvider),
           bridge: ref.read(widgetStorageBridgeProvider),
-        ).publishCurrent(now);
+        ).publishAll(now);
       },
       onClearAllData: () async {
         final confirmed = await showAdaptiveConfirmationDialog(
@@ -52,6 +52,12 @@ class SettingsRoutePage extends ConsumerWidget {
         final repository = ref.read(timetableRepositoryProvider);
         await WidgetSnapshotPublisher(ref.read(widgetStorageBridgeProvider))
             .clear();
+        final widgetBridge = ref.read(widgetStorageBridgeProvider);
+        if (widgetBridge is WidgetCatalogStorageBridge) {
+          final catalogBridge = widgetBridge as WidgetCatalogStorageBridge;
+          await catalogBridge.clearCatalog();
+          await widgetBridge.updateWidget();
+        }
         await ref.read(import_providers.bitcAccountStoreProvider).deleteAll();
         await sessionStore.clearCurrentWebSessionAccount();
         await clearCookies();

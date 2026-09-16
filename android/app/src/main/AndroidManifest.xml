@@ -29,6 +29,15 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <activity
+            android:name=".widget.SchedulrWidgetConfigureActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@style/LaunchTheme">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
         <receiver
             android:name=".widget.SchedulrWidgetReceiver"
             android:exported="true"

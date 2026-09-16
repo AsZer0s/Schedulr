@@ -106,7 +106,7 @@ class SettingsPage extends StatelessWidget {
           ),
           const AboutListTile(
             applicationName: '课程表',
-            applicationVersion: '1.1.14',
+            applicationVersion: '1.1.15',
             applicationLegalese: '本应用默认不长期保存教务密码。',
           ),
         ],

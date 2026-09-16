@@ -9,4 +9,6 @@
     android:targetCellWidth="4"
     android:targetCellHeight="2"
     android:updatePeriodMillis="0"
-    android:widgetCategory="home_screen" />
+    android:widgetCategory="home_screen"
+    android:configure="app.schedulr.schedulr.widget.SchedulrWidgetConfigureActivity"
+    android:widgetFeatures="reconfigurable" />

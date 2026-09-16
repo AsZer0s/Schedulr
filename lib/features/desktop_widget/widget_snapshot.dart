@@ -245,6 +245,115 @@ class WidgetSnapshot {
   int get hashCode => const DeepCollectionEquality().hash(toMap());
 }
 
+class WidgetCatalogEntry {
+  const WidgetCatalogEntry({
+    required this.timetableId,
+    required this.timetableName,
+    required this.semesterName,
+    required this.snapshot,
+  });
+
+  final String timetableId;
+  final String timetableName;
+  final String semesterName;
+  final WidgetSnapshot snapshot;
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'timetableId': timetableId,
+    'timetableName': timetableName,
+    'semesterName': semesterName,
+    'snapshot': snapshot.toMap(),
+  };
+
+  factory WidgetCatalogEntry.fromMap(Map<String, Object?> map) {
+    final rawSnapshot = map['snapshot'];
+    if (rawSnapshot is! Map) {
+      throw const FormatException('snapshot must be an object.');
+    }
+    return WidgetCatalogEntry(
+      timetableId: _requiredString(map, 'timetableId'),
+      timetableName: _requiredString(map, 'timetableName'),
+      semesterName: _requiredString(map, 'semesterName'),
+      snapshot: WidgetSnapshot.fromMap(Map<String, Object?>.from(rawSnapshot)),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is WidgetCatalogEntry &&
+      const DeepCollectionEquality().equals(toMap(), other.toMap());
+
+  @override
+  int get hashCode => const DeepCollectionEquality().hash(toMap());
+}
+
+class WidgetCatalog {
+  WidgetCatalog({
+    required this.schemaVersion,
+    required this.generatedAt,
+    required this.defaultTimetableId,
+    required List<WidgetCatalogEntry> entries,
+  }) : entries = List.unmodifiable(entries);
+
+  static const int currentSchemaVersion = 2;
+
+  final int schemaVersion;
+  final DateTime generatedAt;
+  final String? defaultTimetableId;
+  final List<WidgetCatalogEntry> entries;
+
+  WidgetCatalogEntry? entryFor(String timetableId) {
+    for (final entry in entries) {
+      if (entry.timetableId == timetableId) return entry;
+    }
+    return null;
+  }
+
+  Map<String, Object?> toMap() => <String, Object?>{
+    'schemaVersion': schemaVersion,
+    'generatedAt': generatedAt.toUtc().toIso8601String(),
+    'defaultTimetableId': defaultTimetableId,
+    'timetables': entries.map((entry) => entry.toMap()).toList(growable: false),
+  };
+
+  String toJson() => jsonEncode(toMap());
+
+  factory WidgetCatalog.fromMap(Map<String, Object?> map) {
+    final rawEntries = map['timetables'];
+    if (rawEntries is! List) {
+      throw const FormatException('timetables must be a list.');
+    }
+    return WidgetCatalog(
+      schemaVersion: _requiredInt(map, 'schemaVersion'),
+      generatedAt: DateTime.parse(_requiredString(map, 'generatedAt')),
+      defaultTimetableId: map['defaultTimetableId'] as String?,
+      entries: rawEntries
+          .map(
+            (entry) => WidgetCatalogEntry.fromMap(
+              Map<String, Object?>.from(entry as Map),
+            ),
+          )
+          .toList(growable: false),
+    );
+  }
+
+  factory WidgetCatalog.fromJson(String value) {
+    final decoded = jsonDecode(value);
+    if (decoded is! Map) {
+      throw const FormatException('Catalog must be an object.');
+    }
+    return WidgetCatalog.fromMap(Map<String, Object?>.from(decoded));
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is WidgetCatalog &&
+      const DeepCollectionEquality().equals(toMap(), other.toMap());
+
+  @override
+  int get hashCode => const DeepCollectionEquality().hash(toMap());
+}
+
 String _requiredString(Map<String, Object?> map, String key) {
   final value = map[key];
   if (value is! String) throw FormatException('$key must be a string.');

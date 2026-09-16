@@ -23,15 +23,23 @@ WIDGET_ENTITLEMENTS = WIDGET_DIR / "SchedulrWidget.entitlements"
 FLUTTER_DEBUG_XCCONFIG = IOS / "Flutter" / "Debug.xcconfig"
 FLUTTER_RELEASE_XCCONFIG = IOS / "Flutter" / "Release.xcconfig"
 SETTINGS_PAGE = ROOT / "lib" / "features" / "settings" / "presentation" / "settings_page.dart"
+INTENT_DEF = WIDGET_DIR / "SelectTimetable.intentdefinition"
+INTENT_DIR = IOS / "SchedulrIntentExtension"
+INTENT_SWIFT = INTENT_DIR / "IntentHandler.swift"
+INTENT_INFO = INTENT_DIR / "Info.plist"
+INTENT_ENTITLEMENTS = INTENT_DIR / "SchedulrIntentExtension.entitlements"
 SIGNED_IPA_VERIFIER = ROOT / "scripts" / "verify_signed_ios_widget_ipa.py"
-
 APP_GROUP = "group.app.schedulr.shared"
 SNAPSHOT_KEY = "schedulr.widget.snapshot.v1"
+CATALOG_KEY = "schedulr.widget.snapshot.v2"
 WIDGET_BUNDLE = "app.schedulr.schedulr.widget"
 WIDGET_TARGET_ID = "A10000000000000000000010"
 WIDGET_PRODUCT_ID = "A10000000000000000000008"
 EMBED_PHASE_ID = "A1000000000000000000000A"
 THIN_PHASE_ID = "3B06AD1E1E4923F5004D2608"
+INTENT_TARGET_ID = "B10000000000000000000010"
+INTENT_PRODUCT_ID = "B10000000000000000000006"
+INTENT_BUNDLE = "app.schedulr.schedulr.intents"
 
 errors: list[str] = []
 checks: list[str] = []
@@ -75,7 +83,7 @@ def object_block(text: str, object_id: str) -> str:
     return ""
 
 
-for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SETTINGS_PAGE, SIGNED_IPA_VERIFIER]:
+for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SETTINGS_PAGE, SIGNED_IPA_VERIFIER, INTENT_DEF, INTENT_SWIFT, INTENT_INFO, INTENT_ENTITLEMENTS]:
     require(path.is_file(), f"{path.relative_to(ROOT)} exists")
 
 if not PBXPROJ.is_file():
@@ -94,6 +102,10 @@ runner_info = load_plist(RUNNER_INFO) if RUNNER_INFO.is_file() else {}
 runner_entitlements = load_plist(RUNNER_ENTITLEMENTS) if RUNNER_ENTITLEMENTS.is_file() else {}
 widget_info = load_plist(WIDGET_INFO) if WIDGET_INFO.is_file() else {}
 widget_entitlements = load_plist(WIDGET_ENTITLEMENTS) if WIDGET_ENTITLEMENTS.is_file() else {}
+intent_swift = INTENT_SWIFT.read_text() if INTENT_SWIFT.is_file() else ""
+intent_def = load_plist(INTENT_DEF) if INTENT_DEF.is_file() else {}
+intent_info = load_plist(INTENT_INFO) if INTENT_INFO.is_file() else {}
+intent_entitlements = load_plist(INTENT_ENTITLEMENTS) if INTENT_ENTITLEMENTS.is_file() else {}
 
 # pbxproj object IDs may be referenced many times; only object declarations must be unique.
 declared_ids = re.findall(r"^\t\t([0-9A-F]{24})(?: /\*.*?\*/)? = \{", pbx, re.MULTILINE)
@@ -116,8 +128,22 @@ widget_dependency = object_block(pbx, "A10000000000000000000012")
 widget_sources = object_block(pbx, "A10000000000000000000014")
 widget_frameworks = object_block(pbx, "A1000000000000000000000E")
 widget_config_list = object_block(pbx, "A10000000000000000000013")
+intent_target = object_block(pbx, INTENT_TARGET_ID)
+intent_product = object_block(pbx, INTENT_PRODUCT_ID)
+intent_sources = object_block(pbx, "B10000000000000000000014")
+intent_resources = object_block(pbx, "B10000000000000000000015")
 
-require('name = SchedulrWidget;' in widget_target, "SchedulrWidget native target exists")
+require('name = SchedulrIntentExtension;' in intent_target, "Intent extension target exists")
+require(INTENT_PRODUCT_ID in intent_target and 'wrapper.app-extension' in intent_product, "Intent extension product reference is valid")
+require('Intents.framework in Frameworks' in pbx, "Intent extension links Intents.framework")
+require('SelectTimetable.intentdefinition in Resources' in intent_resources, "Intent definition is in Resources phase")
+require(INTENT_TARGET_ID in pbx[pbx.find("targets = (") : pbx.find(");", pbx.find("targets = ("))], "project target list includes Intent extension")
+require(INTENT_BUNDLE in pbx, "Intent extension bundle identifier is configured")
+require('BlueprintIdentifier = "B10000000000000000000010"' in scheme and 'BuildableName = "SchedulrIntentExtension.appex"' in scheme, "shared Runner scheme references Intent extension")
+require('IntentTimelineProvider' in swift and 'IntentConfiguration' in swift, "widget uses iOS 15 IntentConfiguration")
+require(CATALOG_KEY in swift and 'configuration.timetable?.identifier' in swift, "widget reads selected timetable from Catalog")
+require('provideTimetableOptionsCollection' in intent_swift and 'timetableId' in intent_swift, "Intent handler supplies local timetable options")
+require(APP_GROUP in intent_entitlements.get("com.apple.security.application-groups", []), "Intent extension entitlement contains the App Group")
 require('productType = "com.apple.product-type.app-extension";' in widget_target, "widget target is an app extension")
 require(WIDGET_PRODUCT_ID in widget_target, "widget target references its appex product")
 require('explicitFileType = "wrapper.app-extension";' in widget_product and 'path = SchedulrWidget.appex;' in widget_product, "SchedulrWidget.appex product reference is valid")
@@ -147,8 +173,8 @@ for config_id, name in [
     require('CODE_SIGN_ENTITLEMENTS = SchedulrWidget/SchedulrWidget.entitlements;' in config, f"widget {name} entitlements are configured")
     require('APPLICATION_EXTENSION_API_ONLY = YES;' in config, f"widget {name} enforces extension-safe APIs")
     require('SKIP_INSTALL = YES;' in config, f"widget {name} uses SKIP_INSTALL")
-    require('CURRENT_PROJECT_VERSION = 14;' in config, f"widget {name} has a non-empty default build number")
-    require('MARKETING_VERSION = 1.1.14;' in config, f"widget {name} has a non-empty default marketing version")
+    require('CURRENT_PROJECT_VERSION = 15;' in config, f"widget {name} has a non-empty default build number")
+    require('MARKETING_VERSION = 1.1.15;' in config, f"widget {name} has a non-empty default marketing version")
     expected_base = "9740EEB21CF90195004384FC" if name == "Debug" else "7AFA3C8E1D35360C0083082E"
     require(f"baseConfigurationReference = {expected_base}" in config, f"widget {name} inherits Flutter-generated version settings")
 
@@ -184,13 +210,13 @@ schemes = [
 ]
 require("schedulr" in schemes, "Runner Info.plist registers the schedulr URL scheme")
 
-require("StaticConfiguration" in swift and "TimelineProvider" in swift, "widget uses StaticConfiguration and TimelineProvider")
+require(('StaticConfiguration' in swift or 'IntentConfiguration' in swift) and 'TimelineProvider' in swift, "widget uses a supported WidgetKit configuration and timeline provider")
 require(APP_GROUP in swift and SNAPSHOT_KEY in swift, "widget reads the agreed App Group snapshot key")
 require('schedulr://home?homeWidget' in swift, "widget click URL is configured")
 require(all(family in swift for family in [".systemSmall", ".systemMedium", ".systemLarge"]), "widget supports small, medium, and large families")
 require("home_widget" not in swift.lower(), "widget source does not import or reference home_widget")
 imports = set(re.findall(r"^import\s+(\w+)", swift, re.MULTILINE))
-require(imports <= {"Foundation", "SwiftUI", "WidgetKit"}, f"widget imports only Foundation/SwiftUI/WidgetKit ({sorted(imports)})")
+require(imports <= {"Foundation", "Intents", "SwiftUI", "WidgetKit"}, f"widget imports only extension-safe frameworks ({sorted(imports)})")
 require("lineLimit(2)" in swift, "course titles/details include two-line adaptation")
 require(all(field in swift for field in ["timetableName", "semesterName", "teachingWeek", "weekday", "startPeriod", "endPeriod", "color"]), "widget parser covers the Flutter snapshot schema fields")
 require('keys: ["id", "sessionId", "courseId"]' in swift, "widget uses unique sessionId before courseId for SwiftUI identity")
@@ -231,7 +257,7 @@ require("flutter test --concurrency=1" in workflow, "release workflow runs Flutt
 require("Test Android widget parser" in workflow and ":app:testDebugUnitTest" in workflow, "release workflow runs Android native widget tests")
 require("Upload Flutter test log" in workflow and 'flutter-test.log' in workflow, "release workflow preserves a diagnostic Flutter test log")
 require("Verify iOS native integrations" in workflow and "python3 scripts/verify_ios_widget_project.py" in workflow, "release workflow runs static iOS widget verification before build")
-require('WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"' in workflow, "release workflow locates the embedded widget")
+require('WIDGET_APPEX="$RUNNER_APP/PlugIns/SchedulrWidget.appex"' in workflow and 'INTENT_APPEX="$RUNNER_APP/PlugIns/SchedulrIntentExtension.appex"' in workflow, "release workflow locates both embedded extensions")
 require("CFBundleShortVersionString" in workflow and "CFBundleVersion" in workflow, "release workflow reads both app and widget version fields")
 require("flutter build ios --release --config-only --no-codesign" in workflow, "release workflow generates Flutter iOS configuration without signing")
 require('CODE_SIGN_IDENTITY=""' in workflow and 'DEVELOPMENT_TEAM=""' in workflow and 'PROVISIONING_PROFILE_SPECIFIER=""' in workflow, "release workflow clears Xcode signing identity, team, and profile")
@@ -246,8 +272,10 @@ require('set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleShortVersionSt
 require('set_or_add_plist_string "$RUNNER_APP/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"' in workflow, "release workflow creates the Runner build-version key when missing")
 require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"' in workflow, "release workflow creates the Widget short-version key when missing")
 require('set_or_add_plist_string "$WIDGET_APPEX/Info.plist" CFBundleVersion "$EXPECTED_BUILD_VERSION"' in workflow, "release workflow creates the Widget build-version key when missing")
-require('[[ "$RUNNER_SHORT_VERSION" == "$WIDGET_SHORT_VERSION" ]]' in workflow, "release workflow compares Runner and widget short versions")
+require('set_or_add_plist_string "$INTENT_APPEX/Info.plist" CFBundleShortVersionString "$EXPECTED_SHORT_VERSION"' in workflow, "release workflow creates the Intent short-version key when missing")
 require('[[ "$RUNNER_BUILD_VERSION" == "$WIDGET_BUILD_VERSION" ]]' in workflow, "release workflow compares Runner and widget build versions")
+require('[[ "$RUNNER_SHORT_VERSION" == "$INTENT_SHORT_VERSION" ]]' in workflow, "release workflow compares Runner and Intent short versions")
+require('[[ "$RUNNER_BUILD_VERSION" == "$INTENT_BUILD_VERSION" ]]' in workflow, "release workflow compares Runner and Intent build versions")
 
 require('verify_signed_ios_widget_ipa.py' in SIGNED_IPA_VERIFIER.name and 'codesign' in SIGNED_IPA_VERIFIER.read_text(), "signed IPA verifier checks codesign entitlements")
 

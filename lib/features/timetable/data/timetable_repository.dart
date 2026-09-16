@@ -37,6 +37,16 @@ class TimetableRepository {
     return (await query.get()).map(_semesterFromRow).toList();
   }
 
+  Future<List<SemesterTimetable>> getAllSemesterTimetables() async {
+    final semesters = await getSemesters();
+    final timetables = <SemesterTimetable>[];
+    for (final semester in semesters) {
+      final timetable = await getSemesterTimetable(semester.id);
+      if (timetable != null) timetables.add(timetable);
+    }
+    return timetables;
+  }
+
   Stream<List<Semester>> watchSemesters() {
     final query = database.select(database.semesters)
       ..orderBy(_semesterOrdering);

@@ -19,6 +19,14 @@ abstract interface class WidgetStorageBridge {
   Future<void> clearSnapshot();
 }
 
+abstract interface class WidgetCatalogStorageBridge {
+  Future<void> saveCatalog(String value);
+
+  Future<String?> readCatalog();
+
+  Future<void> clearCatalog();
+}
+
 enum WidgetPublishStage {
   idle,
   loadingTimetable,
@@ -65,11 +73,14 @@ class WidgetPublishDiagnostics {
       'errorCode: $errorCode, retryable: $retryable)';
 }
 
-class HomeWidgetStorageBridge implements WidgetStorageBridge {
+class HomeWidgetStorageBridge
+    implements WidgetStorageBridge, WidgetCatalogStorageBridge {
   const HomeWidgetStorageBridge();
 
   static const String appGroupId = 'group.app.schedulr.shared';
   static const String snapshotKey = 'schedulr.widget.snapshot.v1';
+  static const String catalogKey = 'schedulr.widget.snapshot.v2';
+
   static const String qualifiedAndroidWidgetName =
       'app.schedulr.schedulr.widget.SchedulrWidgetReceiver';
   static const String iOSWidgetName = 'SchedulrWidget';
@@ -87,6 +98,22 @@ class HomeWidgetStorageBridge implements WidgetStorageBridge {
   @override
   Future<String?> readSnapshot() async {
     return HomeWidget.getWidgetData<String>(snapshotKey);
+  }
+
+  @override
+  Future<void> saveCatalog(String value) async {
+    await HomeWidget.saveWidgetData<String>(catalogKey, value);
+  }
+
+  @override
+  Future<String?> readCatalog() async {
+    return HomeWidget.getWidgetData<String>(catalogKey);
+  }
+
+  @override
+  Future<void> clearCatalog() async {
+    await HomeWidget.saveWidgetData<String>(catalogKey, null);
+    await HomeWidget.saveWidgetData<String>(snapshotKey, null);
   }
 
   @override
@@ -335,8 +362,86 @@ class WidgetSnapshotCoordinator {
     }
   }
 
-  void _report(WidgetPublishDiagnostics diagnostics) =>
-      onDiagnostics?.call(diagnostics);
+  Future<WidgetCatalog> publishAll(DateTime now, {int attempt = 1}) async {
+    final catalogBridge = bridge is WidgetCatalogStorageBridge
+        ? bridge as WidgetCatalogStorageBridge
+        : (throw StateError('Catalog storage bridge is unavailable.'));
+    _report(
+      WidgetPublishDiagnostics(
+        stage: WidgetPublishStage.loadingTimetable,
+        attempt: attempt,
+        occurredAt: DateTime.now().toUtc(),
+      ),
+    );
+    try {
+      final timetables = await repository.getAllSemesterTimetables();
+      final current =
+          timetables
+              .where((timetable) => timetable.semester.isCurrent)
+              .firstOrNull ??
+          (timetables.isEmpty ? null : timetables.first);
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.projectingSnapshot,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+      final catalog = WidgetCatalog(
+        schemaVersion: WidgetCatalog.currentSchemaVersion,
+        generatedAt: now.toLocal(),
+        defaultTimetableId: current?.semester.id,
+        entries: timetables
+            .map(
+              (timetable) => WidgetCatalogEntry(
+                timetableId: timetable.semester.id,
+                timetableName: timetable.semester.timetableName,
+                semesterName: timetable.semester.name,
+                snapshot: projector.project(timetable, now),
+              ),
+            )
+            .toList(growable: false),
+      );
+      await bridge.setAppGroupId(HomeWidgetStorageBridge.appGroupId);
+      await catalogBridge.saveCatalog(catalog.toJson());
+      final readBack = await catalogBridge.readCatalog();
+      if (readBack == null) {
+        throw const WidgetStorageReadBackException('empty-catalog');
+      }
+      final decoded = WidgetCatalog.fromJson(readBack);
+      if (decoded.schemaVersion != WidgetCatalog.currentSchemaVersion ||
+          decoded.entries.length != catalog.entries.length ||
+          decoded.entries.any(
+            (entry) => catalog.entryFor(entry.timetableId) == null,
+          )) {
+        throw const WidgetStorageReadBackException('catalog-schema');
+      }
+      await bridge.updateWidget();
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.completed,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+        ),
+      );
+      return catalog;
+    } on Object catch (error) {
+      _report(
+        WidgetPublishDiagnostics(
+          stage: WidgetPublishStage.failed,
+          attempt: attempt,
+          occurredAt: DateTime.now().toUtc(),
+          errorCode: _errorCode(error),
+          retryable: _isRetryable(error),
+        ),
+      );
+      rethrow;
+    }
+  }
+
+  void _report(WidgetPublishDiagnostics diagnostics) {
+    onDiagnostics?.call(diagnostics);
+  }
 
   String _errorCode(Object error) {
     if (error is WidgetStorageReadBackException) {

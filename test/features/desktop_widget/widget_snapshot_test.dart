@@ -272,6 +272,38 @@ void main() {
       expect(legacyDecoded.nextDate, isNull);
     });
 
+    test('round trips a multi-timetable catalog without private fields', () {
+      final first = WidgetSnapshot.noTimetable(DateTime(2026, 9, 7));
+      final second = WidgetSnapshot.noTimetable(DateTime(2026, 9, 7));
+      final catalog = WidgetCatalog(
+        schemaVersion: WidgetCatalog.currentSchemaVersion,
+        generatedAt: DateTime.utc(2026, 9, 7, 8),
+        defaultTimetableId: 'a',
+        entries: [
+          WidgetCatalogEntry(
+            timetableId: 'a',
+            timetableName: '本人课表',
+            semesterName: '第一学期',
+            snapshot: first,
+          ),
+          WidgetCatalogEntry(
+            timetableId: 'b',
+            timetableName: '同学课表',
+            semesterName: '第一学期',
+            snapshot: second,
+          ),
+        ],
+      );
+
+      final decoded = WidgetCatalog.fromJson(catalog.toJson());
+      expect(decoded, catalog);
+      expect(decoded.entryFor('a')?.timetableName, '本人课表');
+      expect(decoded.entryFor('missing'), isNull);
+      expect(catalog.toJson(), isNot(contains('account')));
+      expect(catalog.toJson(), isNot(contains('cookie')));
+      expect(catalog.toJson(), isNot(contains('sourceId')));
+    });
+
     test('round trips stable JSON without private course fields', () {
       final snapshot = const WidgetSnapshotProjector().project(
         _timetable(

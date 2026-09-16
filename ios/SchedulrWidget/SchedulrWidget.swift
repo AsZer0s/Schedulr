@@ -1,10 +1,12 @@
 import Foundation
+import Intents
 import SwiftUI
 import WidgetKit
 
 private enum WidgetConstants {
     static let appGroup = "group.app.schedulr.shared"
-    static let snapshotKey = "schedulr.widget.snapshot.v1"
+    static let legacySnapshotKey = "schedulr.widget.snapshot.v1"
+    static let catalogKey = "schedulr.widget.snapshot.v2"
     static let kind = "SchedulrWidget"
     static let deepLink = URL(string: "schedulr://home?homeWidget")!
     static let staleInterval: TimeInterval = 18 * 60 * 60
@@ -195,22 +197,24 @@ private struct SchedulrEntry: TimelineEntry {
     )
 }
 
-private struct SchedulrProvider: TimelineProvider {
+private struct SchedulrProvider: IntentTimelineProvider {
+    typealias Intent = SelectTimetableIntent
+
     func placeholder(in context: Context) -> SchedulrEntry {
         .placeholder
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (SchedulrEntry) -> Void) {
+    func getSnapshot(for configuration: SelectTimetableIntent, in context: Context, completion: @escaping (SchedulrEntry) -> Void) {
         if context.isPreview {
             completion(.placeholder)
         } else {
-            completion(SchedulrEntry(date: Date(), state: SnapshotLoader.load()))
+            completion(SchedulrEntry(date: Date(), state: SnapshotLoader.load(timetableId: configuration.timetable?.identifier)))
         }
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<SchedulrEntry>) -> Void) {
+    func getTimeline(for configuration: SelectTimetableIntent, in context: Context, completion: @escaping (Timeline<SchedulrEntry>) -> Void) {
         let now = Date()
-        let state = SnapshotLoader.load()
+        let state = SnapshotLoader.load(timetableId: configuration.timetable?.identifier)
         let dates = TimelineDates.make(now: now, state: state)
         let entries = dates.map { SchedulrEntry(date: $0, state: state) }
         completion(Timeline(entries: entries, policy: .after(TimelineDates.reloadDate(now: now))))
@@ -253,18 +257,48 @@ private enum TimelineDates {
 }
 
 private enum SnapshotLoader {
-    static func load() -> SnapshotState {
-        guard let defaults = UserDefaults(suiteName: WidgetConstants.appGroup),
-              let stored = defaults.object(forKey: WidgetConstants.snapshotKey) else {
+    static func load(timetableId: String?) -> SnapshotState {
+        guard let defaults = UserDefaults(suiteName: WidgetConstants.appGroup) else {
             return .noData
         }
-
+        if let timetableId {
+            guard let storedCatalog = defaults.object(forKey: WidgetConstants.catalogKey),
+                  let data = jsonData(from: storedCatalog),
+                  let object = try? JSONSerialization.jsonObject(with: data),
+                  let catalog = object as? [String: Any],
+                  let timetables = value(catalog, keys: ["timetables"]) as? [[String: Any]],
+                  let selected = timetables.first(where: { string(from: value($0, keys: ["timetableId"])) == timetableId }),
+                  let snapshot = dictionary(selected, keys: ["snapshot"]),
+                  let state = loadProjection(snapshot) else {
+                return .noData
+            }
+            return state
+        }
+        if let storedCatalog = defaults.object(forKey: WidgetConstants.catalogKey),
+           let data = jsonData(from: storedCatalog),
+           let object = try? JSONSerialization.jsonObject(with: data),
+           let catalog = object as? [String: Any] {
+            let selectedId = timetableId ?? string(from: value(catalog, keys: ["defaultTimetableId"]))
+            if let selectedId,
+               let timetables = value(catalog, keys: ["timetables"]) as? [[String: Any]],
+               let selected = timetables.first(where: { string(from: value($0, keys: ["timetableId"])) == selectedId }),
+               let snapshot = dictionary(selected, keys: ["snapshot"]),
+               let state = loadProjection(snapshot) {
+                return state
+            }
+        }
+        guard let stored = defaults.object(forKey: WidgetConstants.legacySnapshotKey) else {
+            return .noData
+        }
         guard let data = jsonData(from: stored),
               let object = try? JSONSerialization.jsonObject(with: data),
               let rawRoot = object as? [String: Any] else {
             return .corrupt
         }
+        return loadProjection(rawRoot) ?? .corrupt
+    }
 
+    private static func loadProjection(_ rawRoot: [String: Any]) -> SnapshotState? {
         let root = dictionary(rawRoot, keys: ["snapshot", "projection", "data"]) ?? rawRoot
         let rootState = string(from: value(root, keys: ["state"]))?.lowercased() ?? ""
         if ["nodata", "no_data", "notimetable", "no_timetable", "empty", "unavailable"].contains(rootState) {
@@ -274,7 +308,7 @@ private enum SnapshotLoader {
             return .corrupt
         }
         guard let projection = parseProjection(root) else {
-            return .corrupt
+            return nil
         }
         return .data(projection)
     }
@@ -731,7 +765,7 @@ private extension View {
 @main
 struct SchedulrWidget: Widget {
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: WidgetConstants.kind, provider: SchedulrProvider()) { entry in
+        IntentConfiguration(kind: WidgetConstants.kind, intent: SelectTimetableIntent.self, provider: SchedulrProvider()) { entry in
             SchedulrWidgetView(entry: entry)
         }
         .configurationDisplayName("SchedulrWidget")

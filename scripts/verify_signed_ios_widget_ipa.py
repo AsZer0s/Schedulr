@@ -13,6 +13,7 @@ from pathlib import Path
 APP_GROUP = "group.app.schedulr.shared"
 APP_BUNDLE = "app.schedulr.schedulr"
 WIDGET_BUNDLE = "app.schedulr.schedulr.widget"
+INTENT_BUNDLE = "app.schedulr.schedulr.intents"
 
 
 def command(*args: str) -> str:
@@ -43,22 +44,29 @@ def main() -> int:
             archive.extractall(root)
         app = root / "Payload" / "Runner.app"
         widget = app / "PlugIns" / "SchedulrWidget.appex"
-        if not app.is_dir() or not widget.is_dir():
-            raise RuntimeError("Runner.app or embedded Widget Extension is missing")
-        if bundle_id(app) != APP_BUNDLE or bundle_id(widget) != WIDGET_BUNDLE:
-            raise RuntimeError("unexpected Runner/Widget bundle identifier")
+        intent = app / "PlugIns" / "SchedulrIntentExtension.appex"
+        if not app.is_dir() or not widget.is_dir() or not intent.is_dir():
+            raise RuntimeError("Runner.app, Widget, or Intent extension is missing")
+        if {bundle_id(app), bundle_id(widget), bundle_id(intent)} != {APP_BUNDLE, WIDGET_BUNDLE, INTENT_BUNDLE}:
+            raise RuntimeError("unexpected Runner/Widget/Intent bundle identifier")
         app_entitlements = codesign_entitlements(app)
         widget_entitlements = codesign_entitlements(widget)
+        intent_entitlements = codesign_entitlements(intent)
         app_groups = app_entitlements.get("com.apple.security.application-groups", [])
         widget_groups = widget_entitlements.get("com.apple.security.application-groups", [])
-        if APP_GROUP not in app_groups or APP_GROUP not in widget_groups:
-            raise RuntimeError("both signed targets must authorize the shared App Group")
-        app_team = app_entitlements.get("com.apple.developer.team-identifier")
-        widget_team = widget_entitlements.get("com.apple.developer.team-identifier")
-        if not app_team or app_team != widget_team:
-            raise RuntimeError("Runner and Widget must use the same signing team")
-        command("codesign", "--verify", "--deep", "--strict", "--verbose=2", str(app))
-        print(f"Signed IPA verified: team={app_team}, app-group={APP_GROUP}")
+        intent_groups = intent_entitlements.get("com.apple.security.application-groups", [])
+        if any(APP_GROUP not in groups for groups in (app_groups, widget_groups, intent_groups)):
+            raise RuntimeError("all signed targets must authorize the shared App Group")
+        teams = {
+            codesign_entitlements(path).get("com.apple.developer.team-identifier")
+            for path in (app, widget, intent)
+        }
+        if len(teams) != 1 or None in teams:
+            raise RuntimeError("Runner, Widget, and Intent must use the same signing team")
+        signed = [app, widget, intent]
+        for path in signed:
+            command("codesign", "--verify", "--strict", "--verbose=2", str(path))
+        print(f"Signed IPA verified: team={next(iter(teams))}, app-group={APP_GROUP}, extensions=2")
     return 0
 
 

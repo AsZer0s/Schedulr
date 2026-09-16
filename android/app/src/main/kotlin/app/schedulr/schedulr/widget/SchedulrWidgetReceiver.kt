@@ -77,6 +77,18 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
         }
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        val store = WidgetInstanceStore(context)
+        appWidgetIds.forEach(store::deleteBinding)
+        super.onDeleted(context, appWidgetIds)
+        refreshAll(context)
+    }
+
+    override fun onRestored(context: Context, oldWidgetIds: IntArray, newWidgetIds: IntArray) {
+        WidgetInstanceStore(context).restoreBindings(oldWidgetIds, newWidgetIds)
+        super.onRestored(context, oldWidgetIds, newWidgetIds)
+    }
+
     override fun onDisabled(context: Context) {
         cancelRefresh(context)
         super.onDisabled(context)
@@ -106,9 +118,15 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
         val resolvedOptions = options ?: manager.getAppWidgetOptions(widgetId)
         val compact = isCompact(resolvedOptions)
         val snapshot = try {
-            WidgetSnapshotParser.parse(
-                HomeWidgetPlugin.getData(context).getString(SNAPSHOT_KEY, null),
-            )
+            val data = HomeWidgetPlugin.getData(context)
+            val binding = WidgetInstanceStore(context).readBinding(widgetId)
+            val catalog = data.getString(WidgetCatalogParser.CATALOG_KEY, null)
+            val selected = WidgetCatalogParser.select(catalog, binding)
+            selected?.snapshot ?: if (binding == null) {
+                WidgetSnapshotParser.parse(data.getString(SNAPSHOT_KEY, null))
+            } else {
+                WidgetSnapshot(state = WidgetSnapshot.STATE_CORRUPT)
+            }
         } catch (_: Exception) {
             WidgetSnapshot(state = WidgetSnapshot.STATE_CORRUPT)
         }
@@ -116,7 +134,7 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
             context.packageName,
             if (compact) R.layout.schedulr_widget_compact else R.layout.schedulr_widget_medium,
         )
-        views.setOnClickPendingIntent(R.id.widget_container, openAppPendingIntent(context))
+        views.setOnClickPendingIntent(R.id.widget_container, openAppPendingIntent(context, widgetId))
         bindSnapshot(views, snapshot, compact)
         manager.updateAppWidget(widgetId, views)
         return snapshot
@@ -241,11 +259,11 @@ class SchedulrWidgetReceiver : AppWidgetProvider() {
             .filterNotNull().filter { it.isNotBlank() }.joinToString(" · ").ifBlank { "时间待定" }
     }
 
-    private fun openAppPendingIntent(context: Context): PendingIntent =
+    private fun openAppPendingIntent(context: Context, widgetId: Int): PendingIntent =
         HomeWidgetLaunchIntent.getActivity(
             context,
             MainActivity::class.java,
-            Uri.parse("schedulr://home?homeWidget"),
+            Uri.parse("schedulr://home?homeWidget=1&appWidgetId=$widgetId"),
         )
 
     private fun isCompact(options: Bundle): Boolean {
