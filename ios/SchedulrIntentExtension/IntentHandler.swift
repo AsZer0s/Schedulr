@@ -9,18 +9,18 @@ final class IntentHandler: INExtension, SelectTimetableIntentHandling {
         self
     }
 
-    func provideTimetableOptionsCollection(for intent: SelectTimetableIntent, with completion: @escaping (INObjectCollection<INObject>?, Error?) -> Void) {
+    func provideTimetableOptionsCollection(for intent: SelectTimetableIntent, with completion: @escaping (INObjectCollection<Timetable>?, Error?) -> Void) {
         let objects = loadTimetables()
         completion(INObjectCollection(items: objects), nil)
     }
 
-    func defaultTimetable(for intent: SelectTimetableIntent) -> INObject? {
+    func defaultTimetable(for intent: SelectTimetableIntent) -> Timetable? {
         let defaults = UserDefaults(suiteName: appGroup)
         let defaultId = defaults.flatMap { readCatalog(from: $0)?["defaultTimetableId"] as? String }
         return loadTimetables().first { $0.identifier == defaultId } ?? loadTimetables().first
     }
 
-    private func loadTimetables() -> [INObject] {
+    private func loadTimetables() -> [Timetable] {
         guard let defaults = UserDefaults(suiteName: appGroup),
               let catalog = readCatalog(from: defaults),
               let values = catalog["timetables"] as? [[String: Any]] else {
@@ -31,7 +31,7 @@ final class IntentHandler: INExtension, SelectTimetableIntentHandling {
                   !identifier.isEmpty,
                   let display = raw["timetableName"] as? String,
                   !display.isEmpty else { return nil }
-            return INObject(identifier: identifier, display: display)
+            return Timetable(identifier: identifier, display: display)
         }
     }
 
