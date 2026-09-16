@@ -97,6 +97,7 @@ swift = WIDGET_SWIFT.read_text() if WIDGET_SWIFT.is_file() else ""
 flutter_debug_xcconfig = FLUTTER_DEBUG_XCCONFIG.read_text() if FLUTTER_DEBUG_XCCONFIG.is_file() else ""
 flutter_release_xcconfig = FLUTTER_RELEASE_XCCONFIG.read_text() if FLUTTER_RELEASE_XCCONFIG.is_file() else ""
 settings_page = SETTINGS_PAGE.read_text() if SETTINGS_PAGE.is_file() else ""
+intent_definition_text = INTENT_DEF.read_text() if INTENT_DEF.is_file() else ""
 
 runner_info = load_plist(RUNNER_INFO) if RUNNER_INFO.is_file() else {}
 runner_entitlements = load_plist(RUNNER_ENTITLEMENTS) if RUNNER_ENTITLEMENTS.is_file() else {}
@@ -136,6 +137,7 @@ intent_resources = object_block(pbx, "B10000000000000000000015")
 require('name = SchedulrIntentExtension;' in intent_target, "Intent extension target exists")
 require(INTENT_PRODUCT_ID in intent_target and 'wrapper.app-extension' in intent_product, "Intent extension product reference is valid")
 require('Intents.framework in Frameworks' in pbx, "Intent extension links Intents.framework")
+require('information' in intent_definition_text and '<string>View</string>' in intent_definition_text, "Intent definition uses Xcode-valid information/View category")
 require('SelectTimetable.intentdefinition in Resources' in intent_resources, "Intent definition is in Resources phase")
 require(INTENT_TARGET_ID in pbx[pbx.find("targets = (") : pbx.find(");", pbx.find("targets = ("))], "project target list includes Intent extension")
 require(INTENT_BUNDLE in pbx, "Intent extension bundle identifier is configured")

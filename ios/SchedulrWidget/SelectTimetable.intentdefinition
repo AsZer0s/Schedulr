@@ -25,6 +25,10 @@
 	<key>INIntents</key>
 	<array>
 		<dict>
+			<key>INIntentCategory</key>
+			<string>information</string>
+			<key>INIntentVerb</key>
+			<string>View</string>
 			<key>INIntentDescription</key>
 			<string>选择要显示在 Schedulr 小组件中的课表。</string>
 			<key>INIntentEligibleForWidgets</key>
