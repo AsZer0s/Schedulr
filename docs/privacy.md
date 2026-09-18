@@ -31,10 +31,9 @@ Drift/SQLite 保存：
 用户可以为每份本地课表保存一个 BITC 教务账号，用于识别目标课表和在学校登录页预填账号：
 
 - 账号只保存在 Android Keystore / iOS Keychain 支持的系统安全存储中，并按本地课表 ID 隔离。
-- App 不读取、不保存、不自动提交教务密码；密码仍由用户在学校 VPN/IAM 页面输入，或由系统密码管理器自动填充。
-- App 不导出或保存 Cookie、Token；快速刷新仅复用系统 WebView 当前会话。
-- 当前 WebView 会话无法确认属于目标账号时，会先清除 Cookie，再要求用户重新登录，避免把同学 A 的会话用于同学 B 的课表。
-- 账号不会进入 Drift SQLite、桌面小组件、日志、fixture、分析或崩溃报告。
+- App 不保存密码；登录成功后可将 BITC WebView 的最小 Cookie 快照按账号保存到 Android Keystore / iOS Keychain 支持的系统安全存储中，仅用于下次恢复该账号的 WebView 会话。
+- Cookie 只允许 `bitc.edu.cn` 及其子域，不能进入 App Group、Widget 快照、SQLite、日志、fixture、分析或崩溃报告。
+- 快速刷新优先恢复目标账号的安全 Cookie；Cookie 失效时回退到学校 VPN/IAM 登录页。
 - 用户可以单独退出网页登录、删除全部已保存账号，或在删除对应课表时一并删除其账号绑定。
 
 

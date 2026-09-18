@@ -43,6 +43,7 @@ dependencies:
   uuid: ^4.6.0
   intl: ^0.20.3
   collection: ^1.19.1
+  crypto: ^3.0.6
   dio: ^5.11.1
   cookie_jar: ^4.0.9
   dio_cookie_manager: ^3.5.0

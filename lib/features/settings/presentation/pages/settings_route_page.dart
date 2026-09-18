@@ -26,10 +26,17 @@ class SettingsRoutePage extends ConsumerWidget {
       onEditSemester: () => context.push('/settings/semester'),
       onClearSession: () async {
         await sessionStore.clearCurrentWebSessionAccount();
+        await ref
+            .read(import_providers.bitcCookieStoreProvider)
+            .clearBrowserSession();
         await clearCookies();
       },
       onDeleteSavedAccounts: () async {
         await ref.read(import_providers.bitcAccountStoreProvider).deleteAll();
+        await ref.read(import_providers.bitcCookieStoreProvider).deleteAll();
+        await ref
+            .read(import_providers.bitcCookieStoreProvider)
+            .clearBrowserSession();
         await sessionStore.clearCurrentWebSessionAccount();
         ref.invalidate(import_providers.bitcAccountsProvider);
       },
@@ -50,6 +57,7 @@ class SettingsRoutePage extends ConsumerWidget {
         );
         if (!confirmed) return;
         final repository = ref.read(timetableRepositoryProvider);
+        await repository.clearAllTimetableData();
         await WidgetSnapshotPublisher(ref.read(widgetStorageBridgeProvider))
             .clear();
         final widgetBridge = ref.read(widgetStorageBridgeProvider);
@@ -59,7 +67,11 @@ class SettingsRoutePage extends ConsumerWidget {
           await widgetBridge.updateWidget();
         }
         await ref.read(import_providers.bitcAccountStoreProvider).deleteAll();
+        await ref.read(import_providers.bitcCookieStoreProvider).deleteAll();
         await sessionStore.clearCurrentWebSessionAccount();
+        await ref
+            .read(import_providers.bitcCookieStoreProvider)
+            .clearBrowserSession();
         await clearCookies();
         await repository.clearAllTimetableData();
         if (!context.mounted) return;

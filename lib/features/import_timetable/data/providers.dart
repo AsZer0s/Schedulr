@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/storage/secure_session_store.dart';
 import '../domain/bitc_account.dart';
 import 'bitc_account_store.dart';
+import 'bitc_cookie_store.dart';
 
 /// Override this provider in tests with an in-memory adapter.
 final secureKeyValueAdapterProvider = Provider<SecureKeyValueAdapter>((ref) {
@@ -15,6 +16,10 @@ final secureSessionStoreProvider = Provider<SecureSessionStore>((ref) {
 
 final bitcAccountStoreProvider = Provider<BitcAccountStore>((ref) {
   return BitcAccountStore(adapter: ref.watch(secureKeyValueAdapterProvider));
+});
+
+final bitcCookieStoreProvider = Provider<BitcCookieStore>((ref) {
+  return BitcCookieStore(adapter: ref.watch(secureKeyValueAdapterProvider));
 });
 
 final bitcAccountProvider = FutureProvider.family<BitcAccount?, String>((

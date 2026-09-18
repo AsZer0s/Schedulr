@@ -8,6 +8,7 @@ import '../../../core/storage/secure_session_store.dart';
 import '../../../integrations/zfsoft/zfsoft.dart';
 import '../../timetable/domain/semester_timetable.dart';
 
+import '../data/bitc_cookie_store.dart';
 import '../domain/bitc_account.dart';
 import '../domain/import_timetable.dart';
 import 'bitc/bitc_web_session_page.dart';
@@ -34,6 +35,7 @@ class TimetableImportPage extends StatefulWidget {
     this.onDeleteAccount,
     this.secureSessionStore = const SecureSessionStore(),
     this.clearWebViewCookies,
+    this.bitcCookieStore,
     super.key,
   });
 
@@ -59,6 +61,7 @@ class TimetableImportPage extends StatefulWidget {
   final Future<void> Function()? onDeleteAccount;
   final SecureSessionStore secureSessionStore;
   final Future<void> Function()? clearWebViewCookies;
+  final BitcCookieStore? bitcCookieStore;
 
   @override
   State<TimetableImportPage> createState() => _TimetableImportPageState();
@@ -242,7 +245,9 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
   Future<void> _saveAccountAfterSuccess() async {
     try {
       if (!_saveBitcAccount || _source != ImportSourceChoice.bitc) {
-        if (widget.initialAccount != null) await widget.onDeleteAccount?.call();
+        if (widget.initialAccount != null) {
+          await widget.onDeleteAccount?.call();
+        }
         return;
       }
       final account = _bitcAccountController.text.trim();
@@ -334,10 +339,20 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
         ? null
         : await widget.secureSessionStore.readCurrentWebSessionAccount();
     final canReuseSession = account.isNotEmpty && currentSession == account;
+    var restoredCookie = false;
     if (!canReuseSession) {
+      await widget.bitcCookieStore?.clearBrowserSession();
       await (widget.clearWebViewCookies ??
           WebViewCookieManager().clearCookies)();
       await widget.secureSessionStore.clearCurrentWebSessionAccount();
+    }
+    if (account.isNotEmpty) {
+      try {
+        restoredCookie =
+            await widget.bitcCookieStore?.restore(account) ?? false;
+      } on Object {
+        // Fall back to the normal WebView login flow when a saved session is unavailable.
+      }
     }
     final request = ImportTermRequest(
       academicYear: _academicYearController.text.trim(),
@@ -352,7 +367,8 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
             context: context,
             builder: (context) => BitcWebSessionPage(
               savedAccount: account.isEmpty ? null : account,
-              autoFetch: widget.refreshMode && canReuseSession,
+              autoFetch:
+                  widget.refreshMode && (canReuseSession || restoredCookie),
               request: BitcTimetableWebRequest(
                 academicYearStart: protocolTerm.academicYear,
                 termCode: '${protocolTerm.term}',
@@ -369,6 +385,11 @@ class _TimetableImportPageState extends State<TimetableImportPage> {
         payload = result;
         if (account.isNotEmpty) {
           await widget.secureSessionStore.markCurrentWebSessionAccount(account);
+          try {
+            await widget.bitcCookieStore?.capture(account);
+          } on Object {
+            // The current import remains usable even if session persistence fails.
+          }
         }
         return result;
       },

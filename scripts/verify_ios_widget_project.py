@@ -40,6 +40,7 @@ THIN_PHASE_ID = "3B06AD1E1E4923F5004D2608"
 INTENT_TARGET_ID = "B10000000000000000000010"
 INTENT_PRODUCT_ID = "B10000000000000000000006"
 INTENT_BUNDLE = "app.schedulr.schedulr.intents"
+COOKIE_PLUGIN = IOS / "Runner" / "BitcCookiePlugin.swift"
 
 errors: list[str] = []
 checks: list[str] = []
@@ -83,7 +84,7 @@ def object_block(text: str, object_id: str) -> str:
     return ""
 
 
-for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SETTINGS_PAGE, SIGNED_IPA_VERIFIER, INTENT_DEF, INTENT_SWIFT, INTENT_INFO, INTENT_ENTITLEMENTS]:
+for path in [PBXPROJ, SCHEME, WORKFLOW, RUNNER_INFO, RUNNER_ENTITLEMENTS, WIDGET_SWIFT, WIDGET_INFO, WIDGET_ENTITLEMENTS, FLUTTER_DEBUG_XCCONFIG, FLUTTER_RELEASE_XCCONFIG, SETTINGS_PAGE, SIGNED_IPA_VERIFIER, INTENT_DEF, INTENT_SWIFT, INTENT_INFO, INTENT_ENTITLEMENTS, COOKIE_PLUGIN]:
     require(path.is_file(), f"{path.relative_to(ROOT)} exists")
 
 if not PBXPROJ.is_file():
@@ -147,6 +148,10 @@ require('BlueprintIdentifier = "B10000000000000000000010"' in scheme and 'Builda
 require('IntentTimelineProvider' in swift and 'IntentConfiguration' in swift, "widget uses iOS 15 IntentConfiguration")
 require(CATALOG_KEY in swift and 'configuration.timetable?.identifier' in swift, "widget reads selected timetable from Catalog")
 require('INObjectCollection<Timetable>' in intent_swift and 'Timetable(identifier:' in intent_swift, "Intent handler matches the generated Timetable options protocol")
+require('BitcCookiePlugin.swift in Sources' in object_block(pbx, "97C146EA1CF9000F007C117D"), "Runner compiles the BITC Cookie bridge")
+require('schedulr/bitc_cookie' in COOKIE_PLUGIN.read_text() and 'group.app.schedulr.shared' not in COOKIE_PLUGIN.read_text(), "Cookie bridge stays outside the Widget App Group")
+require('document.cookie' not in COOKIE_PLUGIN.read_text(), "Cookie bridge does not use JavaScript cookie extraction")
+require('BitcCookiePlugin.register' in (IOS / "Runner" / "AppDelegate.swift").read_text(), "Runner registers the BITC Cookie bridge")
 require(APP_GROUP in intent_entitlements.get("com.apple.security.application-groups", []), "Intent extension entitlement contains the App Group")
 require('productType = "com.apple.product-type.app-extension";' in widget_target, "widget target is an app extension")
 require(WIDGET_PRODUCT_ID in widget_target, "widget target references its appex product")

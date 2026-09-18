@@ -6,6 +6,7 @@ import '../../../../app/widgets/adaptive_scaffold.dart';
 
 import '../../../timetable/data/providers.dart';
 import '../../../timetable/domain/timetable_models.dart';
+import '../../data/bitc_cookie_store.dart';
 import '../../data/providers.dart' as import_providers;
 import '../../data/timetable_import_coordinator.dart';
 import '../../domain/bitc_account.dart';
@@ -19,6 +20,7 @@ class ImportRoutePage extends ConsumerWidget {
     this.refreshMode = false,
     this.onCommit,
     this.clearWebViewCookies,
+    this.bitcCookieStore,
     super.key,
   });
 
@@ -27,6 +29,7 @@ class ImportRoutePage extends ConsumerWidget {
   final bool refreshMode;
   final Future<void> Function(ImportCommitRequest request)? onCommit;
   final Future<void> Function()? clearWebViewCookies;
+  final BitcCookieStore? bitcCookieStore;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -54,6 +57,9 @@ class ImportRoutePage extends ConsumerWidget {
             initialAccount: savedAccount,
             refreshMode: refreshMode,
             clearWebViewCookies: clearWebViewCookies,
+            bitcCookieStore:
+                bitcCookieStore ??
+                ref.read(import_providers.bitcCookieStoreProvider),
             targetTimetableName: value.semester.timetableName,
             existingEntries: _existingEntries(value),
             initialAcademicYear: value.semester.academicYear,
@@ -82,9 +88,29 @@ class ImportRoutePage extends ConsumerWidget {
               );
             },
             onDeleteAccount: () async {
+              final previous = await ref
+                  .read(import_providers.bitcAccountStoreProvider)
+                  .read(value.semester.id);
               await ref
                   .read(import_providers.bitcAccountStoreProvider)
                   .delete(value.semester.id);
+              final BitcCookieStore cookieStore =
+                  bitcCookieStore ??
+                  ref.read(import_providers.bitcCookieStoreProvider);
+              if (previous != null) {
+                final stillUsed =
+                    (await ref
+                            .read(import_providers.bitcAccountStoreProvider)
+                            .list())
+                        .any(
+                          (account) =>
+                              account.accountId == previous.accountId &&
+                              account.timetableId != value.semester.id,
+                        );
+                if (!stillUsed) {
+                  await cookieStore.delete(previous.accountId);
+                }
+              }
               ref.invalidate(
                 import_providers.bitcAccountProvider(value.semester.id),
               );
