@@ -9,6 +9,10 @@ final class BitcCookiePlugin: NSObject, FlutterPlugin {
 
   static func register(with registry: FlutterPluginRegistry) {
     guard let registrar = registry.registrar(forPlugin: pluginKey) else { return }
+    register(with: registrar)
+  }
+
+  static func register(with registrar: FlutterPluginRegistrar) {
     let channel = FlutterMethodChannel(name: channelName, binaryMessenger: registrar.messenger())
     let instance = BitcCookiePlugin()
     registrar.addMethodCallDelegate(instance, channel: channel)
